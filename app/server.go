@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"net"
 	"os"
@@ -23,10 +22,10 @@ func main() {
 	}
 	defer conn.Close()
 
-	reader := bufio.NewReader(conn)
 	for {
-		var message []byte
-		_, err := reader.Read(message)
+		message := make([]byte, 128)
+		_, err := conn.Read(message)
+		fmt.Println(message)
 		if err != nil {
 			fmt.Println("Error reading from connection: ", err.Error())
 			os.Exit(1)
