@@ -9,6 +9,10 @@ import (
 	"strings"
 )
 
+var cache = map[string]string{}
+
+const nullRespStr = "$-1\r\n"
+
 func main() {
 	fmt.Println("Logs from your program will appear here!")
 
@@ -51,9 +55,40 @@ func ping(args []string, conn net.Conn) {
 	}
 }
 
+func set(args []string, conn net.Conn) {
+	if len(args) < 2 {
+		fmt.Println("Error performing set: not enough args")
+	}
+
+	cache[args[0]] = args[1]
+	if _, err := conn.Write([]byte("+OK\r\n")); err != nil {
+		fmt.Println("Error performing set: ", err.Error())
+	}
+}
+
+func get(args []string, conn net.Conn) {
+	if len(args) == 0 {
+		fmt.Println("Error performing get: no args")
+	}
+
+	value, exists := cache[args[0]]
+	if !exists {
+		if _, err := conn.Write([]byte(nullRespStr)); err != nil {
+			fmt.Println("Error performing get: ", err.Error())
+		}
+		return
+	}
+
+	if _, err := conn.Write([]byte(toRespStr(value))); err != nil {
+		fmt.Println("Error performing get: ", err.Error())
+	}
+}
+
 var commands = map[string]func([]string, net.Conn){
 	"echo": echo,
 	"ping": ping,
+	"set":  set,
+	"get":  get,
 }
 
 func runCommand(commandName string, args []string, conn net.Conn) {
