@@ -2,12 +2,12 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 type CacheItem struct {
@@ -16,11 +16,16 @@ type CacheItem struct {
 }
 
 var cache = map[string]CacheItem{}
-
-const nullRespStr = "$-1\r\n"
+var configParams = map[string]string{}
 
 func main() {
-	fmt.Println("Logs from your program will appear here!")
+	dirFlag := flag.String("dir", "", "")
+	dbFilenameFlag := flag.String("dbfilename", "", "")
+
+	flag.Parse()
+
+	configParams["dir"] = *dirFlag
+	configParams["dbfilename"] = *dbFilenameFlag
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
@@ -37,104 +42,6 @@ func main() {
 
 		go handleClient(conn)
 	}
-}
-
-func toRespStr(raw string) string {
-	length := len(raw)
-	return fmt.Sprintf("$%d\r\n%s\r\n", length, raw)
-}
-
-func echo(args []string, conn net.Conn) {
-	if len(args) == 0 {
-		fmt.Println("Error performing echo: no args")
-		return
-	}
-
-	if _, err := conn.Write([]byte(toRespStr(args[0]))); err != nil {
-		fmt.Println("Error performing echo: ", err.Error())
-	}
-}
-
-func ping(args []string, conn net.Conn) {
-	if _, err := conn.Write([]byte("+PONG\r\n")); err != nil {
-		fmt.Println("Error performing png: ", err.Error())
-	}
-}
-
-func set(args []string, conn net.Conn) {
-	now := time.Now()
-
-	if len(args) < 2 {
-		fmt.Println("Error performing set: not enough args")
-		return
-	}
-
-	expiresAt := int64(-1)
-	for i, arg := range args {
-		switch strings.ToLower(arg) {
-		case "px":
-			if i+1 < len(args) {
-				ttl, err := strconv.Atoi(args[i+1])
-				if err != nil {
-					ttl = 0
-				}
-				expiresAt = now.UnixMilli() + int64(ttl)
-			}
-		}
-	}
-
-	cache[args[0]] = CacheItem{
-		value:     args[1],
-		expiresAt: expiresAt,
-	}
-	if _, err := conn.Write([]byte("+OK\r\n")); err != nil {
-		fmt.Println("Error performing set: ", err.Error())
-	}
-}
-
-func get(args []string, conn net.Conn) {
-	now := time.Now().UnixMilli()
-
-	if len(args) == 0 {
-		fmt.Println("Error performing get: no args")
-		return
-	}
-
-	entry, exists := cache[args[0]]
-	if !exists {
-		if _, err := conn.Write([]byte(nullRespStr)); err != nil {
-			fmt.Println("Error performing get: ", err.Error())
-		}
-		return
-	}
-
-	writeVal := toRespStr(entry.value)
-	if entry.expiresAt != -1 && now >= entry.expiresAt {
-		fmt.Println("Entry expired: ", now, entry.expiresAt)
-		writeVal = nullRespStr
-	}
-
-	if _, err := conn.Write([]byte(writeVal)); err != nil {
-		fmt.Println("Error performing get: ", err.Error())
-	}
-}
-
-var commands = map[string]func([]string, net.Conn){
-	"echo": echo,
-	"ping": ping,
-	"set":  set,
-	"get":  get,
-}
-
-func runCommand(commandName string, args []string, conn net.Conn) {
-	command, exists := commands[commandName]
-	if !exists {
-		fmt.Printf("Error running command '%s': command does not exist\n", commandName)
-	}
-
-	fmt.Println("Running command: ", commandName, args)
-
-	command(args, conn)
 }
 
 func handleClient(conn net.Conn) {
