@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 )
 
 func main() {
@@ -26,18 +29,95 @@ func main() {
 	}
 }
 
+func toRespStr(raw string) string {
+	length := len(raw)
+	return fmt.Sprintf("$%d\r\n%s\r\n", length, raw)
+}
+
+func echo(args []string, conn net.Conn) {
+	if len(args) == 0 {
+		fmt.Println("Error performing echo: no args")
+		return
+	}
+
+	if _, err := conn.Write([]byte(toRespStr(args[0]))); err != nil {
+		fmt.Println("Error performing echo: ", err.Error())
+	}
+}
+
+func ping(args []string, conn net.Conn) {
+	if _, err := conn.Write([]byte("+PONG\r\n")); err != nil {
+		fmt.Println("Error performing png: ", err.Error())
+	}
+}
+
+var commands = map[string]func([]string, net.Conn){
+	"echo": echo,
+	"ping": ping,
+}
+
+func runCommand(commandName string, args []string, conn net.Conn) {
+	command, exists := commands[commandName]
+	if !exists {
+		fmt.Printf("Error running command '%s': command does not exist\n", commandName)
+	}
+
+	command(args, conn)
+}
+
 func handleClient(conn net.Conn) {
 	defer conn.Close()
 
-	for {
-		message := make([]byte, 128)
-		_, err := conn.Read(message)
-		fmt.Println(message)
-		if err != nil {
-			fmt.Println("Error reading from connection: ", err.Error())
-			return
+	reader := bufio.NewReader(conn)
+	commandParts := make(chan string)
+	go func() {
+		defer close(commandParts)
+		for {
+			message, err := reader.ReadString('\n')
+			if err != nil {
+				fmt.Println("Error reading from connection (will close): ", err.Error())
+				return
+			}
+
+			if len(message) < 3 {
+				fmt.Println("Error reading from connection (will close): message too short")
+				return
+			}
+
+			message = message[:len(message)-2]
+			commandParts <- message
+		}
+	}()
+
+	numArgsLeft := 0
+	command := ""
+	args := []string{}
+	for part := range commandParts {
+		if numArgsLeft == 0 && (part[0] != '*' || len(part) == 1) {
+			continue
 		}
 
-		conn.Write([]byte("+PONG\r\n"))
+		if numArgsLeft == 0 {
+			numArgsLeft, _ = strconv.Atoi(part[1:])
+			continue
+		}
+
+		switch part[0] {
+		case '$':
+			continue
+		default:
+			if len(command) == 0 {
+				command = strings.ToLower(part)
+			} else {
+				args = append(args, part)
+			}
+			numArgsLeft--
+		}
+
+		if numArgsLeft == 0 {
+			runCommand(command, args, conn)
+			command = ""
+			args = []string{}
+		}
 	}
 }
