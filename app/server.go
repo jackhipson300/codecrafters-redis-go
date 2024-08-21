@@ -7,9 +7,15 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
-var cache = map[string]string{}
+type CacheItem struct {
+	value     string
+	expiresAt int64
+}
+
+var cache = map[string]CacheItem{}
 
 const nullRespStr = "$-1\r\n"
 
@@ -56,22 +62,45 @@ func ping(args []string, conn net.Conn) {
 }
 
 func set(args []string, conn net.Conn) {
+	now := time.Now()
+
 	if len(args) < 2 {
 		fmt.Println("Error performing set: not enough args")
+		return
 	}
 
-	cache[args[0]] = args[1]
+	expiresAt := int64(-1)
+	for i, arg := range args {
+		switch strings.ToLower(arg) {
+		case "px":
+			if i+1 < len(args) {
+				ttl, err := strconv.Atoi(args[i+1])
+				if err != nil {
+					ttl = 0
+				}
+				expiresAt = now.UnixMilli() + int64(ttl)
+			}
+		}
+	}
+
+	cache[args[0]] = CacheItem{
+		value:     args[1],
+		expiresAt: expiresAt,
+	}
 	if _, err := conn.Write([]byte("+OK\r\n")); err != nil {
 		fmt.Println("Error performing set: ", err.Error())
 	}
 }
 
 func get(args []string, conn net.Conn) {
+	now := time.Now().UnixMilli()
+
 	if len(args) == 0 {
 		fmt.Println("Error performing get: no args")
+		return
 	}
 
-	value, exists := cache[args[0]]
+	entry, exists := cache[args[0]]
 	if !exists {
 		if _, err := conn.Write([]byte(nullRespStr)); err != nil {
 			fmt.Println("Error performing get: ", err.Error())
@@ -79,7 +108,13 @@ func get(args []string, conn net.Conn) {
 		return
 	}
 
-	if _, err := conn.Write([]byte(toRespStr(value))); err != nil {
+	writeVal := toRespStr(entry.value)
+	if entry.expiresAt != -1 && now >= entry.expiresAt {
+		fmt.Println("Entry expired: ", now, entry.expiresAt)
+		writeVal = nullRespStr
+	}
+
+	if _, err := conn.Write([]byte(writeVal)); err != nil {
 		fmt.Println("Error performing get: ", err.Error())
 	}
 }
@@ -96,6 +131,8 @@ func runCommand(commandName string, args []string, conn net.Conn) {
 	if !exists {
 		fmt.Printf("Error running command '%s': command does not exist\n", commandName)
 	}
+
+	fmt.Println("Running command: ", commandName, args)
 
 	command(args, conn)
 }
