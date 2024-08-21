@@ -113,12 +113,31 @@ func config(args []string, conn net.Conn) error {
 	return nil
 }
 
+func keys(args []string, conn net.Conn) error {
+	keysArr, err := getKeys()
+	if err != nil {
+		return err
+	}
+
+	response := fmt.Sprintf("*%d\r\n", len(keysArr))
+	for _, key := range keysArr {
+		response += toRespStr(key)
+	}
+
+	if _, err := conn.Write([]byte(response)); err != nil {
+		return fmt.Errorf("error performing keys: %w", err)
+	}
+
+	return nil
+}
+
 var commands = map[string]func([]string, net.Conn) error{
 	"echo":   echo,
 	"ping":   ping,
 	"set":    set,
 	"get":    get,
 	"config": config,
+	"keys":   keys,
 }
 
 func runCommand(commandName string, args []string, conn net.Conn) {
