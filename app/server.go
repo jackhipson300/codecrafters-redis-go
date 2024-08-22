@@ -21,15 +21,21 @@ var configParams = map[string]string{}
 func main() {
 	dirFlag := flag.String("dir", "", "")
 	dbFilenameFlag := flag.String("dbfilename", "", "")
+	portFlag := flag.String("port", "", "")
 
 	flag.Parse()
 
 	configParams["dir"] = *dirFlag
 	configParams["dbfilename"] = *dbFilenameFlag
+	configParams["port"] = *portFlag
 
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
+	if configParams["port"] == "" {
+		configParams["port"] = "6379"
+	}
+
+	l, err := net.Listen("tcp", "0.0.0.0:"+configParams["port"])
 	if err != nil {
-		fmt.Println("Failed to bind to port 6379")
+		fmt.Printf("Failed to bind to port %s\n", configParams["port"])
 		os.Exit(1)
 	}
 
