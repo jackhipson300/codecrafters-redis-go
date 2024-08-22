@@ -180,6 +180,21 @@ func replconf(args []string, conn net.Conn) error {
 	return nil
 }
 
+func psync(args []string, conn net.Conn) error {
+	if len(args) < 2 {
+		return fmt.Errorf("error performing psync: not enough args")
+	}
+
+	if args[0] == "?" {
+		response := fmt.Sprintf("+FULLRESYNC %s 0\r\n", configParams["replId"])
+		if _, err := conn.Write([]byte(response)); err != nil {
+			return fmt.Errorf("error performing psync: %w", err)
+		}
+	}
+
+	return nil
+}
+
 var commands = map[string]func([]string, net.Conn) error{
 	"echo":     echo,
 	"ping":     ping,
@@ -189,6 +204,7 @@ var commands = map[string]func([]string, net.Conn) error{
 	"keys":     keys,
 	"info":     info,
 	"replconf": replconf,
+	"psync":    psync,
 }
 
 func runCommand(commandName string, args []string, conn net.Conn) {
