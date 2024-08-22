@@ -39,6 +39,11 @@ func main() {
 		configParams["role"] = "slave"
 	}
 
+	if configParams["role"] == "master" {
+		configParams["replId"] = generateReplId()
+		configParams["replOffset"] = "0"
+	}
+
 	l, err := net.Listen("tcp", "0.0.0.0:"+configParams["port"])
 	if err != nil {
 		fmt.Printf("Failed to bind to port %s\n", configParams["port"])

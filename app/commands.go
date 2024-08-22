@@ -158,7 +158,13 @@ func info(args []string, conn net.Conn) error {
 	}
 
 	if args[0] == "replication" {
-		if _, err := conn.Write([]byte(toRespStr("role:" + configParams["role"]))); err != nil {
+		response := "role:" + configParams["role"]
+		if configParams["role"] == "master" {
+			addToInfoResponse("master_replid", configParams["replId"], &response)
+			addToInfoResponse("master_repl_offset", configParams["replOffset"], &response)
+		}
+
+		if _, err := conn.Write([]byte(toRespStr(response))); err != nil {
 			return fmt.Errorf("error performing info: %w", err)
 		}
 	}
