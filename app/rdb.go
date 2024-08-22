@@ -9,6 +9,10 @@ import (
 
 var mutex = sync.Mutex{}
 
+type ValueInfo struct {
+	position int
+}
+
 func decodeString(raw []byte, start int) (string, int) {
 	idx := start
 	var size uint32 = 0
@@ -27,9 +31,10 @@ func decodeString(raw []byte, start int) (string, int) {
 	return string(raw[idx:end]), end
 }
 
-func getKeys() ([]string, error) {
+func getKeys() (map[string]ValueInfo, error) {
 	if configParams["dir"] == "" || configParams["dbfilename"] == "" {
-		return nil, fmt.Errorf("error getting keys: directory or filename not in config")
+		fmt.Println("error getting keys: directory or filename not in config")
+		return make(map[string]ValueInfo), nil
 	}
 
 	mutex.Lock()
@@ -52,7 +57,7 @@ func getKeys() ([]string, error) {
 		return nil, fmt.Errorf("error getting keys: no db section found")
 	}
 
-	keys := []string{}
+	keys := make(map[string]ValueInfo)
 	for idx := dbStartIdx + 5; idx < len(contents) && contents[idx] != 0xFF; idx++ {
 		if contents[idx] == 0xFC {
 			idx += 9
@@ -68,8 +73,22 @@ func getKeys() ([]string, error) {
 		key, n := decodeString(contents, idx)
 		idx += n
 
-		keys = append(keys, key)
+		keys[key] = ValueInfo{position: n}
 	}
 
 	return keys, nil
+}
+
+func getValue(valueInfo ValueInfo) (string, error) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	contents, err := os.ReadFile(configParams["dir"] + "/" + configParams["dbfilename"])
+	if err != nil {
+		return "", fmt.Errorf("error getting keys: %w", err)
+	}
+
+	value, _ := decodeString(contents, valueInfo.position)
+
+	return value, nil
 }
