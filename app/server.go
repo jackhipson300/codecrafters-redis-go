@@ -28,6 +28,7 @@ func main() {
 	configParams["dir"] = *dirFlag
 	configParams["dbfilename"] = *dbFilenameFlag
 	configParams["port"] = *portFlag
+	configParams["role"] = "master"
 
 	if configParams["port"] == "" {
 		configParams["port"] = "6379"

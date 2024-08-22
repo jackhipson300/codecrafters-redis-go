@@ -152,6 +152,20 @@ func keys(args []string, conn net.Conn) error {
 	return nil
 }
 
+func info(args []string, conn net.Conn) error {
+	if len(args) == 0 {
+		return fmt.Errorf("error performing info: no args")
+	}
+
+	if args[0] == "replication" {
+		if _, err := conn.Write([]byte(toRespStr("role:" + configParams["role"]))); err != nil {
+			return fmt.Errorf("error performing info: %w", err)
+		}
+	}
+
+	return nil
+}
+
 var commands = map[string]func([]string, net.Conn) error{
 	"echo":   echo,
 	"ping":   ping,
@@ -159,6 +173,7 @@ var commands = map[string]func([]string, net.Conn) error{
 	"get":    get,
 	"config": config,
 	"keys":   keys,
+	"info":   info,
 }
 
 func runCommand(commandName string, args []string, conn net.Conn) {
