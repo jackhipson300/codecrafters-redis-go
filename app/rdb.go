@@ -57,8 +57,12 @@ func getKeys() (map[string]ValueInfo, error) {
 		return nil, fmt.Errorf("error getting keys: no db section found")
 	}
 
+	// for i, b := range contents {
+	// 	fmt.Printf("%d %02x\n", i, b)
+	// }
+
 	keys := make(map[string]ValueInfo)
-	for idx := dbStartIdx + 5; idx < len(contents) && contents[idx] != 0xFF; idx++ {
+	for idx := dbStartIdx + 5; idx < len(contents) && contents[idx] != 0xFF; {
 		if contents[idx] == 0xFC {
 			idx += 9
 		}
@@ -66,12 +70,13 @@ func getKeys() (map[string]ValueInfo, error) {
 			idx += 5
 		}
 		if contents[idx] != 0x00 {
+			idx += 1
 			continue
 		}
 		idx += 1
 
 		key, n := decodeString(contents, idx)
-		idx += n
+		idx = n
 
 		keys[key] = ValueInfo{position: n}
 	}
