@@ -10,7 +10,8 @@ import (
 var mutex = sync.Mutex{}
 
 type ValueInfo struct {
-	position int
+	position  int
+	expiresAt int64
 }
 
 func decodeString(raw []byte, start int) (string, int) {
@@ -63,10 +64,13 @@ func getKeys() (map[string]ValueInfo, error) {
 
 	keys := make(map[string]ValueInfo)
 	for idx := dbStartIdx + 5; idx < len(contents) && contents[idx] != 0xFF; {
+		expiry := int64(-1)
 		if contents[idx] == 0xFC {
+			expiry = int64(binary.LittleEndian.Uint64(contents[idx+1 : idx+9]))
 			idx += 9
 		}
 		if contents[idx] == 0xFD {
+			expiry = int64(binary.LittleEndian.Uint64(contents[idx+1:idx+5])) * 1000
 			idx += 5
 		}
 		if contents[idx] != 0x00 {
@@ -78,7 +82,7 @@ func getKeys() (map[string]ValueInfo, error) {
 		key, n := decodeString(contents, idx)
 		idx = n
 
-		keys[key] = ValueInfo{position: n}
+		keys[key] = ValueInfo{position: n, expiresAt: expiry}
 	}
 
 	return keys, nil

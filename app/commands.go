@@ -67,40 +67,42 @@ func get(args []string, conn net.Conn) error {
 		return fmt.Errorf("error performing get: no args")
 	}
 
+	var value string
+	var expiresAt int64
 	entry, exists := cache[args[0]]
 	if exists {
-		writeVal := toRespStr(entry.value)
-		if entry.expiresAt != -1 && now >= entry.expiresAt {
-			fmt.Println("Entry expired: ", now, entry.expiresAt)
-			writeVal = nullRespStr
-		}
-
-		if _, err := conn.Write([]byte(writeVal)); err != nil {
+		value = entry.value
+		expiresAt = entry.expiresAt
+	} else {
+		keysMap, err := getKeys()
+		if err != nil {
 			return fmt.Errorf("error performing get: %w", err)
 		}
 
-		return nil
+		valueInfo, exists := keysMap[args[0]]
+		if exists {
+			expiresAt = valueInfo.expiresAt
+			value, err = getValue(valueInfo)
+			if err != nil {
+				return fmt.Errorf("error performing get: %w", err)
+			}
+		}
 	}
 
-	keysMap, err := getKeys()
-	if err != nil {
-		return fmt.Errorf("error performing get: %w", err)
-	}
-
-	valueInfo, exists := keysMap[args[0]]
-	if !exists {
+	if value == "" {
 		if _, err := conn.Write([]byte(nullRespStr)); err != nil {
 			return fmt.Errorf("error performing get: %w", err)
 		}
 		return fmt.Errorf("error performing get: entry does not exist")
 	}
 
-	value, err := getValue(valueInfo)
-	if err != nil {
-		return fmt.Errorf("error performing get: %w", err)
+	writeVal := toRespStr(value)
+	if expiresAt != -1 && now >= expiresAt {
+		fmt.Println("Entry expired: ", now, entry.expiresAt)
+		writeVal = nullRespStr
 	}
 
-	if _, err := conn.Write([]byte(toRespStr(value))); err != nil {
+	if _, err := conn.Write([]byte(writeVal)); err != nil {
 		return fmt.Errorf("error performing get: %w", err)
 	}
 
