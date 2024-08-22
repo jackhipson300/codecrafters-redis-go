@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 type CacheItem struct {
@@ -50,15 +52,39 @@ func main() {
 		os.Exit(1)
 	}
 
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
-			continue
-		}
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				fmt.Println("Error accepting connection: ", err.Error())
+				continue
+			}
 
-		go handleClient(conn)
+			go handleClient(conn)
+		}
+	}()
+
+	if configParams["role"] == "slave" {
+		parts := strings.Split(configParams["master"], " ")
+		conn, err := net.Dial("tcp", parts[0]+":"+parts[1])
+		if err != nil {
+			fmt.Printf("Failed to connect to master (%s:%s)\n", parts[0], parts[1])
+			os.Exit(1)
+		}
+		fmt.Printf("Connected to master (%s:%s)\n", parts[0], parts[1])
+
+		go handleMaster(conn)
 	}
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	<-sigs
+
+	fmt.Println("Shutting down gracefully...")
+	l.Close()
+
+	os.Exit(0)
 }
 
 func handleClient(conn net.Conn) {
