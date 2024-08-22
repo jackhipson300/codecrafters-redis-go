@@ -22,6 +22,7 @@ func main() {
 	dirFlag := flag.String("dir", "", "")
 	dbFilenameFlag := flag.String("dbfilename", "", "")
 	portFlag := flag.String("port", "", "")
+	replicaofFlag := flag.String("replicaof", "", "")
 
 	flag.Parse()
 
@@ -29,9 +30,13 @@ func main() {
 	configParams["dbfilename"] = *dbFilenameFlag
 	configParams["port"] = *portFlag
 	configParams["role"] = "master"
+	configParams["master"] = *replicaofFlag
 
 	if configParams["port"] == "" {
 		configParams["port"] = "6379"
+	}
+	if *replicaofFlag != "" {
+		configParams["role"] = "slave"
 	}
 
 	l, err := net.Listen("tcp", "0.0.0.0:"+configParams["port"])
