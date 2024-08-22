@@ -172,14 +172,23 @@ func info(args []string, conn net.Conn) error {
 	return nil
 }
 
+func replconf(args []string, conn net.Conn) error {
+	if _, err := conn.Write([]byte("+OK\r\n")); err != nil {
+		return fmt.Errorf("error performing replconf: %w", err)
+	}
+
+	return nil
+}
+
 var commands = map[string]func([]string, net.Conn) error{
-	"echo":   echo,
-	"ping":   ping,
-	"set":    set,
-	"get":    get,
-	"config": config,
-	"keys":   keys,
-	"info":   info,
+	"echo":     echo,
+	"ping":     ping,
+	"set":      set,
+	"get":      get,
+	"config":   config,
+	"keys":     keys,
+	"info":     info,
+	"replconf": replconf,
 }
 
 func runCommand(commandName string, args []string, conn net.Conn) {
