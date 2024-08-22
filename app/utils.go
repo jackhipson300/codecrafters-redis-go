@@ -2,7 +2,7 @@ package main
 
 import (
 	"crypto/rand"
-	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 )
 
@@ -14,10 +14,10 @@ func toRespStr(raw string) string {
 }
 
 func generateReplId() string {
-	bytes := make([]byte, 30)
+	bytes := make([]byte, 40)
 	rand.Read(bytes)
 
-	return base64.URLEncoding.EncodeToString(bytes)[:40]
+	return hex.EncodeToString(bytes)
 }
 
 func addToInfoResponse(key string, value string, response *string) {
