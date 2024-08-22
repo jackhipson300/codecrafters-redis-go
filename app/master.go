@@ -53,6 +53,10 @@ func performHandshake(conn net.Conn) error {
 		return fmt.Errorf("error making psync: %w", err)
 	}
 
+	if _, err := getResponse(conn, 1024); err != nil {
+		return fmt.Errorf("error receiving rdb file: %w", err)
+	}
+
 	return nil
 }
 

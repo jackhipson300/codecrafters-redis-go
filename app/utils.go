@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
 )
 
 const nullRespStr = "$-1\r\n"
@@ -22,4 +23,12 @@ func generateReplId() string {
 
 func addToInfoResponse(key string, value string, response *string) {
 	*response += "\r\n" + key + ":" + value
+}
+
+func write(conn net.Conn, data []byte) (int, error) {
+	if configParams["role"] == "master" {
+		return conn.Write(data)
+	}
+
+	return 0, nil
 }

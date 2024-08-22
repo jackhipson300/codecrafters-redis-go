@@ -16,7 +16,7 @@ func echo(args []string, conn net.Conn) error {
 		return fmt.Errorf("error performing echo: no args")
 	}
 
-	if _, err := conn.Write([]byte(toRespStr(args[0]))); err != nil {
+	if _, err := write(conn, []byte(toRespStr(args[0]))); err != nil {
 		return fmt.Errorf("error performing echo: %w", err)
 	}
 
@@ -24,7 +24,7 @@ func echo(args []string, conn net.Conn) error {
 }
 
 func ping(args []string, conn net.Conn) error {
-	if _, err := conn.Write([]byte("+PONG\r\n")); err != nil {
+	if _, err := write(conn, []byte("+PONG\r\n")); err != nil {
 		return fmt.Errorf("error performing png: %w", err)
 	}
 
@@ -56,7 +56,7 @@ func set(args []string, conn net.Conn) error {
 		value:     args[1],
 		expiresAt: expiresAt,
 	}
-	if _, err := conn.Write([]byte("+OK\r\n")); err != nil {
+	if _, err := write(conn, []byte("+OK\r\n")); err != nil {
 		return fmt.Errorf("error performing set: %w", err)
 	}
 
@@ -93,7 +93,7 @@ func get(args []string, conn net.Conn) error {
 	}
 
 	if value == "" {
-		if _, err := conn.Write([]byte(nullRespStr)); err != nil {
+		if _, err := write(conn, []byte(nullRespStr)); err != nil {
 			return fmt.Errorf("error performing get: %w", err)
 		}
 		return fmt.Errorf("error performing get: entry does not exist")
@@ -105,7 +105,7 @@ func get(args []string, conn net.Conn) error {
 		writeVal = nullRespStr
 	}
 
-	if _, err := conn.Write([]byte(writeVal)); err != nil {
+	if _, err := write(conn, []byte(writeVal)); err != nil {
 		return fmt.Errorf("error performing get: %w", err)
 	}
 
@@ -129,7 +129,7 @@ func config(args []string, conn net.Conn) error {
 			response = fmt.Sprintf("*2\r\n%s%s", toRespStr(args[1]), toRespStr(value))
 		}
 
-		if _, err := conn.Write([]byte(response)); err != nil {
+		if _, err := write(conn, []byte(response)); err != nil {
 			return fmt.Errorf("error performing config get: %w", err)
 		}
 	}
@@ -148,7 +148,7 @@ func keys(args []string, conn net.Conn) error {
 		response += toRespStr(key)
 	}
 
-	if _, err := conn.Write([]byte(response)); err != nil {
+	if _, err := write(conn, []byte(response)); err != nil {
 		return fmt.Errorf("error performing keys: %w", err)
 	}
 
@@ -176,7 +176,7 @@ func info(args []string, conn net.Conn) error {
 }
 
 func replconf(args []string, conn net.Conn) error {
-	if _, err := conn.Write([]byte("+OK\r\n")); err != nil {
+	if _, err := write(conn, []byte("+OK\r\n")); err != nil {
 		return fmt.Errorf("error performing replconf: %w", err)
 	}
 
@@ -190,33 +190,43 @@ func psync(args []string, conn net.Conn) error {
 
 	if args[0] == "?" {
 		response := fmt.Sprintf("+FULLRESYNC %s 0\r\n", configParams["replId"])
-		if _, err := conn.Write([]byte(response)); err != nil {
+		if _, err := write(conn, []byte(response)); err != nil {
 			return fmt.Errorf("error performing psync: %w", err)
 		}
 
 		emptyRdbAsBytes, _ := hex.DecodeString(emptyRdb)
 		fileResponse := append([]byte(fmt.Sprintf("$%d\r\n", len(emptyRdbAsBytes))), emptyRdbAsBytes...)
-		if _, err := conn.Write(fileResponse); err != nil {
+		if _, err := write(conn, fileResponse); err != nil {
 			return fmt.Errorf("error performing psync: %w", err)
 		}
+
+		replicasLock.Lock()
+		defer replicasLock.Unlock()
+
+		replicas = append(replicas, conn)
 	}
 
 	return nil
 }
 
-var commands = map[string]func([]string, net.Conn) error{
-	"echo":     echo,
-	"ping":     ping,
-	"set":      set,
-	"get":      get,
-	"config":   config,
-	"keys":     keys,
-	"info":     info,
-	"replconf": replconf,
-	"psync":    psync,
+type Command struct {
+	handler         func([]string, net.Conn) error
+	shouldReplicate bool
 }
 
-func runCommand(commandName string, args []string, conn net.Conn) {
+var commands = map[string]Command{
+	"echo":     {handler: echo, shouldReplicate: false},
+	"ping":     {handler: ping, shouldReplicate: false},
+	"set":      {handler: set, shouldReplicate: true},
+	"get":      {handler: get, shouldReplicate: false},
+	"config":   {handler: config, shouldReplicate: false},
+	"keys":     {handler: keys, shouldReplicate: false},
+	"info":     {handler: info, shouldReplicate: false},
+	"replconf": {handler: replconf, shouldReplicate: false},
+	"psync":    {handler: psync, shouldReplicate: false},
+}
+
+func runCommand(rawCommand string, commandName string, args []string, conn net.Conn) {
 	command, exists := commands[commandName]
 	if !exists {
 		fmt.Printf("Error running command '%s': command does not exist\n", commandName)
@@ -224,8 +234,22 @@ func runCommand(commandName string, args []string, conn net.Conn) {
 
 	fmt.Println("Running command: ", commandName, args)
 
-	err := command(args, conn)
+	err := command.handler(args, conn)
 	if err != nil {
 		fmt.Println("Error running command: ", err.Error())
+	}
+
+	if command.shouldReplicate {
+		go func() {
+			replicasLock.Lock()
+			defer replicasLock.Unlock()
+
+			for _, replica := range replicas {
+				if _, err := replica.Write([]byte(rawCommand)); err != nil {
+					fmt.Println("Failed to relay command to replica")
+					continue
+				}
+			}
+		}()
 	}
 }

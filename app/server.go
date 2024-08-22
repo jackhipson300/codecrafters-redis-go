@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 )
 
@@ -19,6 +20,9 @@ type CacheItem struct {
 
 var cache = map[string]CacheItem{}
 var configParams = map[string]string{}
+
+var replicas = []net.Conn{}
+var replicasLock = sync.Mutex{}
 
 func main() {
 	dirFlag := flag.String("dir", "", "")
@@ -112,8 +116,10 @@ func handleClient(conn net.Conn) {
 
 	numArgsLeft := 0
 	command := ""
+	rawCommand := ""
 	args := []string{}
 	for part := range commandParts {
+		rawCommand += part + "\r\n"
 		if numArgsLeft == 0 && (part[0] != '*' || len(part) == 1) {
 			continue
 		}
@@ -136,8 +142,10 @@ func handleClient(conn net.Conn) {
 		}
 
 		if numArgsLeft == 0 {
-			runCommand(command, args, conn)
+			runCommand(rawCommand, command, args, conn)
+
 			command = ""
+			rawCommand = ""
 			args = []string{}
 		}
 	}
