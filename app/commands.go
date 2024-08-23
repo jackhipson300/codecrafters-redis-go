@@ -224,6 +224,18 @@ func psync(args []string, conn net.Conn) error {
 	return nil
 }
 
+func wait(args []string, conn net.Conn) error {
+	if len(args) < 2 {
+		return fmt.Errorf("error performing wait: not enough args")
+	}
+
+	if _, err := conn.Write([]byte(":0\r\n")); err != nil {
+		return fmt.Errorf("error performing wait: %w", err)
+	}
+
+	return nil
+}
+
 type Command struct {
 	handler         func([]string, net.Conn) error
 	shouldReplicate bool
@@ -239,6 +251,7 @@ var commands = map[string]Command{
 	"info":     {handler: info, shouldReplicate: false},
 	"replconf": {handler: replconf, shouldReplicate: false},
 	"psync":    {handler: psync, shouldReplicate: false},
+	"wait":     {handler: wait, shouldReplicate: false},
 }
 
 func runCommand(rawCommand string, commandName string, args []string, conn net.Conn) {
