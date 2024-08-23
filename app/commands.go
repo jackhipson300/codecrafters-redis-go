@@ -34,6 +34,12 @@ func ping(args []string, conn net.Conn) error {
 func set(args []string, conn net.Conn) error {
 	now := time.Now()
 
+	setHasOccurred = true
+
+	ackLock.Lock()
+	numAcksSinceLasSet = 0
+	ackLock.Unlock()
+
 	if len(args) < 2 {
 		return fmt.Errorf("error performing set: not enough args")
 	}
@@ -193,6 +199,14 @@ func replconf(args []string, conn net.Conn) error {
 		if _, err := conn.Write([]byte(toRespArr("REPLCONF", "ACK", strconv.Itoa(bytesProcessed)))); err != nil {
 			return fmt.Errorf("error performing replconf: %w", err)
 		}
+	case "ack":
+		if len(args) < 2 {
+			return fmt.Errorf("error handling replconf ack: not enough args")
+		}
+
+		ackLock.Lock()
+		numAcksSinceLasSet++
+		ackLock.Unlock()
 	}
 
 	return nil
@@ -229,15 +243,62 @@ func wait(args []string, conn net.Conn) error {
 		return fmt.Errorf("error performing wait: not enough args")
 	}
 
-	replicasLock.Lock()
-	defer replicasLock.Unlock()
+	if !setHasOccurred {
+		fmt.Println("Set has not occurred, sending 0")
+		replicasLock.Lock()
+		defer replicasLock.Unlock()
 
-	response := fmt.Sprintf(":%d\r\n", len(replicas))
-	if _, err := conn.Write([]byte(response)); err != nil {
+		numAcks := len(replicas)
+
+		response := fmt.Sprintf(":%d\r\n", numAcks)
+		if _, err := conn.Write([]byte(response)); err != nil {
+			return fmt.Errorf("error performing wait: %w", err)
+		}
+
+		return nil
+	}
+
+	replicasLock.Lock()
+	for _, replica := range replicas {
+		if _, err := replica.Write([]byte(toRespArr("REPLCONF", "GETACK", "*"))); err != nil {
+			fmt.Println("Failed to getack after relaying command to replica", err.Error())
+		}
+	}
+	replicasLock.Unlock()
+
+	requiredAcks, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("error performing wait: %w", err)
+	}
+	timeoutMS, err := strconv.Atoi(args[1])
+	if err != nil {
 		return fmt.Errorf("error performing wait: %w", err)
 	}
 
-	return nil
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeoutChannel := time.After(timeout)
+	for {
+		select {
+		case <-ticker.C:
+			if numAcksSinceLasSet >= requiredAcks {
+				response := fmt.Sprintf(":%d\r\n", numAcksSinceLasSet)
+				if _, err := conn.Write([]byte(response)); err != nil {
+					return fmt.Errorf("error performing wait: %w", err)
+				}
+				return nil
+			}
+		case <-timeoutChannel:
+			response := fmt.Sprintf(":%d\r\n", numAcksSinceLasSet)
+			if _, err := conn.Write([]byte(response)); err != nil {
+				return fmt.Errorf("error performing wait: %w", err)
+			}
+			return nil
+		}
+	}
 }
 
 type Command struct {
@@ -274,16 +335,16 @@ func runCommand(rawCommand string, commandName string, args []string, conn net.C
 	bytesProcessed += len(rawCommand)
 
 	if command.shouldReplicate {
-		go func() {
-			replicasLock.Lock()
-			defer replicasLock.Unlock()
+		replicasLock.Lock()
+		defer replicasLock.Unlock()
 
-			for _, replica := range replicas {
+		for _, replica := range replicas {
+			go func() {
 				if _, err := replica.Write([]byte(rawCommand)); err != nil {
-					fmt.Println("Failed to relay command to replica")
-					continue
+					fmt.Println("Failed to relay command to replica", err.Error())
+					return
 				}
-			}
-		}()
+			}()
+		}
 	}
 }

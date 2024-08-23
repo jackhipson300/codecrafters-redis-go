@@ -26,6 +26,10 @@ var replicas = []net.Conn{}
 var replicasLock = sync.Mutex{}
 
 var bytesProcessed = 0
+var setHasOccurred = false
+
+var numAcksSinceLasSet = 0
+var ackLock = sync.Mutex{}
 
 func main() {
 	dirFlag := flag.String("dir", "", "")
