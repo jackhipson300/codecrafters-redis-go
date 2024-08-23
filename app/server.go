@@ -24,6 +24,8 @@ var configParams = map[string]string{}
 var replicas = []net.Conn{}
 var replicasLock = sync.Mutex{}
 
+var bytesProcessed = 0
+
 func main() {
 	dirFlag := flag.String("dir", "", "")
 	dbFilenameFlag := flag.String("dbfilename", "", "")

@@ -190,7 +190,7 @@ func replconf(args []string, conn net.Conn) error {
 			return fmt.Errorf("error performing replconf: %w", err)
 		}
 	case "getack":
-		if _, err := conn.Write([]byte(toRespArr("REPLCONF", "ACK", "0"))); err != nil {
+		if _, err := conn.Write([]byte(toRespArr("REPLCONF", "ACK", strconv.Itoa(bytesProcessed)))); err != nil {
 			return fmt.Errorf("error performing replconf: %w", err)
 		}
 	}
@@ -253,6 +253,8 @@ func runCommand(rawCommand string, commandName string, args []string, conn net.C
 	if err != nil {
 		fmt.Println("Error running command: ", err.Error())
 	}
+
+	bytesProcessed += len(rawCommand)
 
 	if command.shouldReplicate {
 		go func() {
