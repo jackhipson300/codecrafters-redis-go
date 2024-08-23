@@ -229,7 +229,11 @@ func wait(args []string, conn net.Conn) error {
 		return fmt.Errorf("error performing wait: not enough args")
 	}
 
-	if _, err := conn.Write([]byte(":0\r\n")); err != nil {
+	replicasLock.Lock()
+	defer replicasLock.Unlock()
+
+	response := fmt.Sprintf(":%d\r\n", len(replicas))
+	if _, err := conn.Write([]byte(response)); err != nil {
 		return fmt.Errorf("error performing wait: %w", err)
 	}
 

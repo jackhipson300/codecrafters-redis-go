@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -105,7 +106,9 @@ func handleClient(conn net.Conn, reader *bufio.Reader) {
 	for {
 		part, err := readResp(reader)
 		if err != nil {
-			fmt.Println("Error reading from connection (will close): ", err.Error())
+			if err == io.EOF {
+				fmt.Println("Error reading from connection (will close): ", err.Error())
+			}
 			return
 		}
 
