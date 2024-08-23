@@ -11,7 +11,7 @@ import (
 
 const emptyRdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
 
-func echo(args []string, conn net.Conn) error {
+func echoCommand(args []string, conn net.Conn) error {
 	if len(args) == 0 {
 		return fmt.Errorf("error performing echo: no args")
 	}
@@ -23,7 +23,7 @@ func echo(args []string, conn net.Conn) error {
 	return nil
 }
 
-func ping(args []string, conn net.Conn) error {
+func pingCommand(args []string, conn net.Conn) error {
 	if _, err := write(conn, []byte("+PONG\r\n")); err != nil {
 		return fmt.Errorf("error performing png: %w", err)
 	}
@@ -31,7 +31,7 @@ func ping(args []string, conn net.Conn) error {
 	return nil
 }
 
-func set(args []string, conn net.Conn) error {
+func setCommand(args []string, conn net.Conn) error {
 	now := time.Now()
 
 	setHasOccurred = true
@@ -69,7 +69,7 @@ func set(args []string, conn net.Conn) error {
 	return nil
 }
 
-func get(args []string, conn net.Conn) error {
+func getCommand(args []string, conn net.Conn) error {
 	now := time.Now().UnixMilli()
 
 	if len(args) == 0 {
@@ -118,7 +118,7 @@ func get(args []string, conn net.Conn) error {
 	return nil
 }
 
-func config(args []string, conn net.Conn) error {
+func configCommand(args []string, conn net.Conn) error {
 	if len(args) == 0 {
 		return fmt.Errorf("error performing config: no args")
 	}
@@ -143,7 +143,7 @@ func config(args []string, conn net.Conn) error {
 	return nil
 }
 
-func keys(args []string, conn net.Conn) error {
+func keysCommand(args []string, conn net.Conn) error {
 	keysMap, err := getKeys()
 	if err != nil {
 		return err
@@ -161,7 +161,7 @@ func keys(args []string, conn net.Conn) error {
 	return nil
 }
 
-func info(args []string, conn net.Conn) error {
+func infoCommand(args []string, conn net.Conn) error {
 	if len(args) == 0 {
 		return fmt.Errorf("error performing info: no args")
 	}
@@ -181,7 +181,7 @@ func info(args []string, conn net.Conn) error {
 	return nil
 }
 
-func replconf(args []string, conn net.Conn) error {
+func replconfCommand(args []string, conn net.Conn) error {
 	if len(args) == 0 {
 		return fmt.Errorf("error performing replconf: no args")
 	}
@@ -212,7 +212,7 @@ func replconf(args []string, conn net.Conn) error {
 	return nil
 }
 
-func psync(args []string, conn net.Conn) error {
+func psyncCommand(args []string, conn net.Conn) error {
 	if len(args) < 2 {
 		return fmt.Errorf("error performing psync: not enough args")
 	}
@@ -238,7 +238,7 @@ func psync(args []string, conn net.Conn) error {
 	return nil
 }
 
-func wait(args []string, conn net.Conn) error {
+func waitCommand(args []string, conn net.Conn) error {
 	if len(args) < 2 {
 		return fmt.Errorf("error performing wait: not enough args")
 	}
@@ -301,22 +301,50 @@ func wait(args []string, conn net.Conn) error {
 	}
 }
 
+func typeCommand(args []string, conn net.Conn) error {
+	if len(args) == 0 {
+		return fmt.Errorf("error performing type command: no args")
+	}
+
+	_, exists := cache[args[0]]
+	if !exists && len(rdbFile) != 0 {
+		keys, err := getKeys()
+		if err != nil {
+			return fmt.Errorf("error performing type command: %w", err)
+		}
+		_, exists = keys[args[0]]
+	}
+
+	if exists {
+		if _, err := write(conn, []byte("+string\r\n")); err != nil {
+			return fmt.Errorf("error performing type command: %w", err)
+		}
+	} else {
+		if _, err := write(conn, []byte("+none\r\n")); err != nil {
+			return fmt.Errorf("error performing type command: %w", err)
+		}
+	}
+
+	return nil
+}
+
 type Command struct {
 	handler         func([]string, net.Conn) error
 	shouldReplicate bool
 }
 
 var commands = map[string]Command{
-	"echo":     {handler: echo, shouldReplicate: false},
-	"ping":     {handler: ping, shouldReplicate: false},
-	"set":      {handler: set, shouldReplicate: true},
-	"get":      {handler: get, shouldReplicate: false},
-	"config":   {handler: config, shouldReplicate: false},
-	"keys":     {handler: keys, shouldReplicate: false},
-	"info":     {handler: info, shouldReplicate: false},
-	"replconf": {handler: replconf, shouldReplicate: false},
-	"psync":    {handler: psync, shouldReplicate: false},
-	"wait":     {handler: wait, shouldReplicate: false},
+	"echo":     {handler: echoCommand, shouldReplicate: false},
+	"ping":     {handler: pingCommand, shouldReplicate: false},
+	"set":      {handler: setCommand, shouldReplicate: true},
+	"get":      {handler: getCommand, shouldReplicate: false},
+	"config":   {handler: configCommand, shouldReplicate: false},
+	"keys":     {handler: keysCommand, shouldReplicate: false},
+	"info":     {handler: infoCommand, shouldReplicate: false},
+	"replconf": {handler: replconfCommand, shouldReplicate: false},
+	"psync":    {handler: psyncCommand, shouldReplicate: false},
+	"wait":     {handler: waitCommand, shouldReplicate: false},
+	"type":     {handler: typeCommand, shouldReplicate: false},
 }
 
 func runCommand(rawCommand string, commandName string, args []string, conn net.Conn) {
