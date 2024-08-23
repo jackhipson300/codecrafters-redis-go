@@ -93,7 +93,7 @@ func get(args []string, conn net.Conn) error {
 	}
 
 	if value == "" {
-		if _, err := write(conn, []byte(nullRespStr)); err != nil {
+		if _, err := conn.Write([]byte(nullRespStr)); err != nil {
 			return fmt.Errorf("error performing get: %w", err)
 		}
 		return fmt.Errorf("error performing get: entry does not exist")
@@ -105,7 +105,7 @@ func get(args []string, conn net.Conn) error {
 		writeVal = nullRespStr
 	}
 
-	if _, err := write(conn, []byte(writeVal)); err != nil {
+	if _, err := conn.Write([]byte(writeVal)); err != nil {
 		return fmt.Errorf("error performing get: %w", err)
 	}
 
@@ -232,7 +232,7 @@ func runCommand(rawCommand string, commandName string, args []string, conn net.C
 		fmt.Printf("Error running command '%s': command does not exist\n", commandName)
 	}
 
-	fmt.Println("Running command: ", commandName, args)
+	fmt.Printf("%s running command: %s %v\n", configParams["role"], commandName, args)
 
 	err := command.handler(args, conn)
 	if err != nil {

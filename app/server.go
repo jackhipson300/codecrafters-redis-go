@@ -62,8 +62,9 @@ func main() {
 			if err != nil {
 				continue
 			}
+			reader := bufio.NewReader(conn)
 
-			go handleClient(conn)
+			go handleClient(conn, reader)
 		}
 	}()
 
@@ -76,7 +77,9 @@ func main() {
 		}
 		fmt.Printf("Connected to master (%s:%s)\n", parts[0], parts[1])
 
-		go handleMaster(conn)
+		reader := bufio.NewReader(conn)
+
+		go handleMaster(conn, reader)
 	}
 
 	sigs := make(chan os.Signal, 1)
@@ -90,26 +93,20 @@ func main() {
 	os.Exit(0)
 }
 
-func handleClient(conn net.Conn) {
+func handleClient(conn net.Conn, reader *bufio.Reader) {
 	defer conn.Close()
 
-	reader := bufio.NewReader(conn)
 	commandParts := make(chan string)
 	go func() {
 		defer close(commandParts)
 		for {
-			message, err := reader.ReadString('\n')
+			message, err := readResp(reader)
 			if err != nil {
 				fmt.Println("Error reading from connection (will close): ", err.Error())
 				return
 			}
 
-			if len(message) < 3 {
-				fmt.Println("Error reading from connection (will close): message too short")
-				return
-			}
-
-			message = message[:len(message)-2]
+			// fmt.Println(message, configParams["role"])
 			commandParts <- message
 		}
 	}()

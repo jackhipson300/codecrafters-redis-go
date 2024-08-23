@@ -7,7 +7,8 @@ import (
 	"sync"
 )
 
-var mutex = sync.Mutex{}
+var rdbFile = []byte{}
+var rdbMutex = sync.Mutex{}
 
 type ValueInfo struct {
 	position  int
@@ -32,22 +33,38 @@ func decodeString(raw []byte, start int) (string, int) {
 	return string(raw[idx:end]), end
 }
 
+func initRdbFile() error {
+	rdbMutex.Lock()
+	defer rdbMutex.Unlock()
+
+	if len(rdbFile) == 0 {
+		if configParams["dir"] == "" || configParams["dbfilename"] == "" {
+			fmt.Println("error getting keys: directory or filename not in config")
+			return nil
+		}
+
+		var err error
+		contents, err := os.ReadFile(configParams["dir"] + "/" + configParams["dbfilename"])
+		if err != nil {
+			return fmt.Errorf("error initializing rdb file: %w", err)
+		}
+
+		rdbFile = contents
+	}
+
+	return nil
+}
+
 func getKeys() (map[string]ValueInfo, error) {
-	if configParams["dir"] == "" || configParams["dbfilename"] == "" {
-		fmt.Println("error getting keys: directory or filename not in config")
-		return make(map[string]ValueInfo), nil
+	if err := initRdbFile(); err != nil {
+		return make(map[string]ValueInfo), fmt.Errorf("error getting keys: %w", err)
 	}
 
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	contents, err := os.ReadFile(configParams["dir"] + "/" + configParams["dbfilename"])
-	if err != nil {
-		return nil, fmt.Errorf("error getting keys: %w", err)
-	}
+	rdbMutex.Lock()
+	defer rdbMutex.Unlock()
 
 	dbStartIdx := -1
-	for i, b := range contents {
+	for i, b := range rdbFile {
 		if b == 0xFE {
 			dbStartIdx = i
 			break
@@ -63,23 +80,23 @@ func getKeys() (map[string]ValueInfo, error) {
 	// }
 
 	keys := make(map[string]ValueInfo)
-	for idx := dbStartIdx + 5; idx < len(contents) && contents[idx] != 0xFF; {
+	for idx := dbStartIdx + 5; idx < len(rdbFile) && rdbFile[idx] != 0xFF; {
 		expiry := int64(-1)
-		if contents[idx] == 0xFC {
-			expiry = int64(binary.LittleEndian.Uint64(contents[idx+1 : idx+9]))
+		if rdbFile[idx] == 0xFC {
+			expiry = int64(binary.LittleEndian.Uint64(rdbFile[idx+1 : idx+9]))
 			idx += 9
 		}
-		if contents[idx] == 0xFD {
-			expiry = int64(binary.LittleEndian.Uint64(contents[idx+1:idx+5])) * 1000
+		if rdbFile[idx] == 0xFD {
+			expiry = int64(binary.LittleEndian.Uint64(rdbFile[idx+1:idx+5])) * 1000
 			idx += 5
 		}
-		if contents[idx] != 0x00 {
+		if rdbFile[idx] != 0x00 {
 			idx += 1
 			continue
 		}
 		idx += 1
 
-		key, n := decodeString(contents, idx)
+		key, n := decodeString(rdbFile, idx)
 		idx = n
 
 		keys[key] = ValueInfo{position: n, expiresAt: expiry}
@@ -89,15 +106,14 @@ func getKeys() (map[string]ValueInfo, error) {
 }
 
 func getValue(valueInfo ValueInfo) (string, error) {
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	contents, err := os.ReadFile(configParams["dir"] + "/" + configParams["dbfilename"])
-	if err != nil {
-		return "", fmt.Errorf("error getting keys: %w", err)
+	if err := initRdbFile(); err != nil {
+		return "", fmt.Errorf("error getting value from rdb: %w", err)
 	}
 
-	value, _ := decodeString(contents, valueInfo.position)
+	rdbMutex.Lock()
+	defer rdbMutex.Unlock()
+
+	value, _ := decodeString(rdbFile, valueInfo.position)
 
 	return value, nil
 }

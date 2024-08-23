@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -31,4 +32,13 @@ func write(conn net.Conn, data []byte) (int, error) {
 	}
 
 	return 0, nil
+}
+
+func readResp(reader *bufio.Reader) (string, error) {
+	message, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("error reading resp string: %w", err)
+	}
+
+	return message[:len(message)-2], nil
 }
