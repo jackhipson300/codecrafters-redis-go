@@ -106,7 +106,7 @@ func handleClient(conn net.Conn, reader *bufio.Reader) {
 	for {
 		part, err := readResp(reader)
 		if err != nil {
-			if err == io.EOF {
+			if err != io.EOF {
 				fmt.Println("Error reading from connection (will close): ", err.Error())
 			}
 			return
