@@ -46,7 +46,7 @@ func write(conn net.Conn, data []byte) (int, error) {
 func readResp(reader *bufio.Reader) (string, error) {
 	message, err := reader.ReadString('\n')
 	if err != nil {
-		return "", fmt.Errorf("error reading resp string: %w", err)
+		return "", err
 	}
 
 	return message[:len(message)-2], nil
