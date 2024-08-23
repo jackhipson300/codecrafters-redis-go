@@ -176,8 +176,23 @@ func info(args []string, conn net.Conn) error {
 }
 
 func replconf(args []string, conn net.Conn) error {
-	if _, err := write(conn, []byte("+OK\r\n")); err != nil {
-		return fmt.Errorf("error performing replconf: %w", err)
+	if len(args) == 0 {
+		return fmt.Errorf("error performing replconf: no args")
+	}
+
+	switch strings.ToLower(args[0]) {
+	case "listening-port":
+		if _, err := conn.Write([]byte("+OK\r\n")); err != nil {
+			return fmt.Errorf("error performing replconf: %w", err)
+		}
+	case "capa":
+		if _, err := conn.Write([]byte("+OK\r\n")); err != nil {
+			return fmt.Errorf("error performing replconf: %w", err)
+		}
+	case "getack":
+		if _, err := conn.Write([]byte(toRespArr("REPLCONF", "ACK", "0"))); err != nil {
+			return fmt.Errorf("error performing replconf: %w", err)
+		}
 	}
 
 	return nil

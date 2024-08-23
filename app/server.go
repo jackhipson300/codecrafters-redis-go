@@ -96,26 +96,17 @@ func main() {
 func handleClient(conn net.Conn, reader *bufio.Reader) {
 	defer conn.Close()
 
-	commandParts := make(chan string)
-	go func() {
-		defer close(commandParts)
-		for {
-			message, err := readResp(reader)
-			if err != nil {
-				fmt.Println("Error reading from connection (will close): ", err.Error())
-				return
-			}
-
-			// fmt.Println(message, configParams["role"])
-			commandParts <- message
-		}
-	}()
-
 	numArgsLeft := 0
 	command := ""
 	rawCommand := ""
 	args := []string{}
-	for part := range commandParts {
+	for {
+		part, err := readResp(reader)
+		if err != nil {
+			fmt.Println("Error reading from connection (will close): ", err.Error())
+			return
+		}
+
 		rawCommand += part + "\r\n"
 		if numArgsLeft == 0 && (part[0] != '*' || len(part) == 1) {
 			continue

@@ -15,6 +15,15 @@ func toRespStr(raw string) string {
 	return fmt.Sprintf("$%d\r\n%s\r\n", length, raw)
 }
 
+func toRespArr(strs ...string) string {
+	respArr := fmt.Sprintf("*%d\r\n", len(strs))
+	for _, str := range strs {
+		respArr += toRespStr(str)
+	}
+
+	return respArr
+}
+
 func generateReplId() string {
 	bytes := make([]byte, 40)
 	rand.Read(bytes)
