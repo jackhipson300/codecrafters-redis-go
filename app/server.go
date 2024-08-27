@@ -17,9 +17,11 @@ import (
 type CacheItem struct {
 	value     string
 	expiresAt int64
+	itemType  string
 }
 
-var cache = map[string]CacheItem{}
+var keyValueCache = map[string]CacheItem{}
+var streamCache = map[string]map[string]map[string]string{}
 var configParams = map[string]string{}
 
 var replicas = []net.Conn{}

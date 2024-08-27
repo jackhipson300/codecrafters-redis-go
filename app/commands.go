@@ -58,9 +58,10 @@ func setCommand(args []string, conn net.Conn) error {
 		}
 	}
 
-	cache[args[0]] = CacheItem{
+	keyValueCache[args[0]] = CacheItem{
 		value:     args[1],
 		expiresAt: expiresAt,
+		itemType:  "string",
 	}
 	if _, err := write(conn, []byte("+OK\r\n")); err != nil {
 		return fmt.Errorf("error performing set: %w", err)
@@ -78,7 +79,7 @@ func getCommand(args []string, conn net.Conn) error {
 
 	var value string
 	var expiresAt int64
-	entry, exists := cache[args[0]]
+	entry, exists := keyValueCache[args[0]]
 	if exists {
 		value = entry.value
 		expiresAt = entry.expiresAt
@@ -306,23 +307,65 @@ func typeCommand(args []string, conn net.Conn) error {
 		return fmt.Errorf("error performing type command: no args")
 	}
 
-	_, exists := cache[args[0]]
-	if !exists && len(rdbFile) != 0 {
-		keys, err := getKeys()
-		if err != nil {
-			return fmt.Errorf("error performing type command: %w", err)
+	entry, exists := keyValueCache[args[0]]
+	itemType := entry.itemType
+	if !exists {
+		_, exists := streamCache[args[0]]
+		if exists {
+			itemType = "stream"
+		} else if len(rdbFile) != 0 {
+			keys, err := getKeys()
+			if err != nil {
+				return fmt.Errorf("error performing type command: %w", err)
+			}
+			_, exists = keys[args[0]]
+			if exists {
+				itemType = "string"
+			}
 		}
-		_, exists = keys[args[0]]
 	}
 
-	if exists {
-		if _, err := write(conn, []byte("+string\r\n")); err != nil {
+	if itemType != "" {
+		if _, err := write(conn, []byte(fmt.Sprintf("+%s\r\n", itemType))); err != nil {
 			return fmt.Errorf("error performing type command: %w", err)
 		}
 	} else {
 		if _, err := write(conn, []byte("+none\r\n")); err != nil {
 			return fmt.Errorf("error performing type command: %w", err)
 		}
+	}
+
+	return nil
+}
+
+func xaddCommand(args []string, conn net.Conn) error {
+	if len(args) < 4 {
+		return fmt.Errorf("error performing xadd: not enough args")
+	}
+
+	streamId := args[0]
+	entryId := args[1]
+
+	stream, exists := streamCache[streamId]
+	if !exists {
+		stream = map[string]map[string]string{}
+		streamCache[streamId] = stream
+	}
+
+	entry, exists := stream[entryId]
+	if !exists {
+		entry = map[string]string{}
+		stream[entryId] = entry
+	}
+
+	for i := 2; i < len(args); i += 2 {
+		key := args[i]
+		value := args[i+1]
+		entry[key] = value
+	}
+
+	if _, err := write(conn, []byte(toRespStr(entryId))); err != nil {
+		return fmt.Errorf("error performing xadd: %w", err)
 	}
 
 	return nil
@@ -345,6 +388,7 @@ var commands = map[string]Command{
 	"psync":    {handler: psyncCommand, shouldReplicate: false},
 	"wait":     {handler: waitCommand, shouldReplicate: false},
 	"type":     {handler: typeCommand, shouldReplicate: false},
+	"xadd":     {handler: xaddCommand, shouldReplicate: false},
 }
 
 func runCommand(rawCommand string, commandName string, args []string, conn net.Conn) {
