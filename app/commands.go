@@ -349,6 +349,12 @@ func xaddCommand(args []string, conn net.Conn) error {
 	streamId := args[0]
 	entryId := args[1]
 
+	stream, exists := streamCache[streamId]
+	if !exists {
+		stream = &Stream{}
+		streamCache[streamId] = stream
+	}
+
 	entryIdParts := strings.Split(entryId, "-")
 	if len(entryIdParts) < 2 {
 		return fmt.Errorf("error performing xadd: invalid entry id")
@@ -358,19 +364,25 @@ func xaddCommand(args []string, conn net.Conn) error {
 	if err != nil {
 		return fmt.Errorf("error performing xadd: invalid entry id: %w", err)
 	}
-	sequenceNumber, err := strconv.Atoi(entryIdParts[1])
-	if err != nil {
-		return fmt.Errorf("error performing xadd: invalid entry id: %w", err)
+
+	sequenceNumber := 0
+	if millisecondsTime == 0 {
+		sequenceNumber = 1
 	}
 
-	stream, exists := streamCache[streamId]
-	if !exists {
-		stream = &Stream{}
-		stream.entries = map[string]map[string]string{}
-		streamCache[streamId] = stream
+	if entryIdParts[1] == "*" {
+		previousEntry, exists := findMostRecentEntryByTimestamp(*stream, millisecondsTime)
+		if exists {
+			sequenceNumber = previousEntry.sequenceNumber + 1
+		}
+	} else {
+		sequenceNumber, err = strconv.Atoi(entryIdParts[1])
+		if err != nil {
+			return fmt.Errorf("error performing xadd: invalid entry id: %w", err)
+		}
 	}
 
-	if entryId == "0-0" && len(stream.entries) > 0 {
+	if millisecondsTime == 0 && sequenceNumber == 0 && len(stream.entries) > 0 {
 		_, err := write(conn, []byte(xaddEntryIdZeroErr))
 		return err
 	}
@@ -386,18 +398,20 @@ func xaddCommand(args []string, conn net.Conn) error {
 	stream.lastMillisecondsTime = millisecondsTime
 	stream.lastSequenceNumber = sequenceNumber
 
-	entry, exists := stream.entries[entryId]
-	if !exists {
-		entry = map[string]string{}
-		stream.entries[entryId] = entry
+	entry := StreamEntry{
+		timestamp:      millisecondsTime,
+		sequenceNumber: sequenceNumber,
+		values:         map[string]string{},
 	}
+	stream.entries = append(stream.entries, entry)
 
 	for i := 2; i < len(args); i += 2 {
 		key := args[i]
 		value := args[i+1]
-		entry[key] = value
+		entry.values[key] = value
 	}
 
+	entryId = fmt.Sprintf("%d-%d", millisecondsTime, sequenceNumber)
 	if _, err := write(conn, []byte(toRespStr(entryId))); err != nil {
 		return fmt.Errorf("error performing xadd: %w", err)
 	}

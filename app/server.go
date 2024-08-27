@@ -20,10 +20,16 @@ type CacheItem struct {
 	itemType  string
 }
 
+type StreamEntry struct {
+	timestamp      int
+	sequenceNumber int
+	values         map[string]string
+}
+
 type Stream struct {
 	lastMillisecondsTime int
 	lastSequenceNumber   int
-	entries              map[string]map[string]string
+	entries              []StreamEntry
 }
 
 var keyValueCache = map[string]CacheItem{}
