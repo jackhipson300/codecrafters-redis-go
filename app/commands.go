@@ -11,6 +11,9 @@ import (
 
 const emptyRdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
 
+const xaddEntryIdOlderThanLastErr = "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
+const xaddEntryIdZeroErr = "-ERR The ID specified in XADD must be greater than 0-0\r\n"
+
 func echoCommand(args []string, conn net.Conn) error {
 	if len(args) == 0 {
 		return fmt.Errorf("error performing echo: no args")
@@ -346,16 +349,47 @@ func xaddCommand(args []string, conn net.Conn) error {
 	streamId := args[0]
 	entryId := args[1]
 
+	entryIdParts := strings.Split(entryId, "-")
+	if len(entryIdParts) < 2 {
+		return fmt.Errorf("error performing xadd: invalid entry id")
+	}
+
+	millisecondsTime, err := strconv.Atoi(entryIdParts[0])
+	if err != nil {
+		return fmt.Errorf("error performing xadd: invalid entry id: %w", err)
+	}
+	sequenceNumber, err := strconv.Atoi(entryIdParts[1])
+	if err != nil {
+		return fmt.Errorf("error performing xadd: invalid entry id: %w", err)
+	}
+
 	stream, exists := streamCache[streamId]
 	if !exists {
-		stream = map[string]map[string]string{}
+		stream = &Stream{}
+		stream.entries = map[string]map[string]string{}
 		streamCache[streamId] = stream
 	}
 
-	entry, exists := stream[entryId]
+	if entryId == "0-0" && len(stream.entries) > 0 {
+		_, err := write(conn, []byte(xaddEntryIdZeroErr))
+		return err
+	}
+
+	millisecondsTimeInvalid := stream.lastMillisecondsTime > millisecondsTime
+	sequenceNumberInvalid := stream.lastMillisecondsTime == millisecondsTime &&
+		stream.lastSequenceNumber >= sequenceNumber
+	if millisecondsTimeInvalid || sequenceNumberInvalid {
+		_, err := write(conn, []byte(xaddEntryIdOlderThanLastErr))
+		return err
+	}
+
+	stream.lastMillisecondsTime = millisecondsTime
+	stream.lastSequenceNumber = sequenceNumber
+
+	entry, exists := stream.entries[entryId]
 	if !exists {
 		entry = map[string]string{}
-		stream[entryId] = entry
+		stream.entries[entryId] = entry
 	}
 
 	for i := 2; i < len(args); i += 2 {

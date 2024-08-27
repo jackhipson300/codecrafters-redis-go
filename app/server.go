@@ -20,8 +20,14 @@ type CacheItem struct {
 	itemType  string
 }
 
+type Stream struct {
+	lastMillisecondsTime int
+	lastSequenceNumber   int
+	entries              map[string]map[string]string
+}
+
 var keyValueCache = map[string]CacheItem{}
-var streamCache = map[string]map[string]map[string]string{}
+var streamCache = map[string]*Stream{}
 var configParams = map[string]string{}
 
 var replicas = []net.Conn{}
