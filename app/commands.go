@@ -342,43 +342,54 @@ func typeCommand(args []string, conn net.Conn) error {
 }
 
 func xaddCommand(args []string, conn net.Conn) error {
-	if len(args) < 4 {
+	var err error
+	if len(args) < 2 {
 		return fmt.Errorf("error performing xadd: not enough args")
 	}
 
 	streamId := args[0]
-	entryId := args[1]
-
 	stream, exists := streamCache[streamId]
 	if !exists {
 		stream = &Stream{}
 		streamCache[streamId] = stream
 	}
 
-	entryIdParts := strings.Split(entryId, "-")
-	if len(entryIdParts) < 2 {
-		return fmt.Errorf("error performing xadd: invalid entry id")
-	}
+	var millisecondsTime int64
+	var sequenceNumber int
+	entryId := args[1]
 
-	millisecondsTime, err := strconv.Atoi(entryIdParts[0])
-	if err != nil {
-		return fmt.Errorf("error performing xadd: invalid entry id: %w", err)
-	}
-
-	sequenceNumber := 0
-	if millisecondsTime == 0 {
-		sequenceNumber = 1
-	}
-
-	if entryIdParts[1] == "*" {
+	if entryId == "*" {
+		millisecondsTime = time.Now().UnixMilli()
 		previousEntry, exists := findMostRecentEntryByTimestamp(*stream, millisecondsTime)
 		if exists {
 			sequenceNumber = previousEntry.sequenceNumber + 1
 		}
 	} else {
-		sequenceNumber, err = strconv.Atoi(entryIdParts[1])
+		entryIdParts := strings.Split(entryId, "-")
+		if len(entryIdParts) < 2 {
+			return fmt.Errorf("error performing xadd: invalid entry id")
+		}
+
+		millisecondsTime, err = strconv.ParseInt(entryIdParts[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("error performing xadd: invalid entry id: %w", err)
+		}
+
+		sequenceNumber = 0
+		if millisecondsTime == 0 {
+			sequenceNumber = 1
+		}
+
+		if entryIdParts[1] == "*" {
+			previousEntry, exists := findMostRecentEntryByTimestamp(*stream, millisecondsTime)
+			if exists {
+				sequenceNumber = previousEntry.sequenceNumber + 1
+			}
+		} else {
+			sequenceNumber, err = strconv.Atoi(entryIdParts[1])
+			if err != nil {
+				return fmt.Errorf("error performing xadd: invalid entry id: %w", err)
+			}
 		}
 	}
 

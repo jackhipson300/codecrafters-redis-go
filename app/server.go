@@ -21,13 +21,13 @@ type CacheItem struct {
 }
 
 type StreamEntry struct {
-	timestamp      int
+	timestamp      int64
 	sequenceNumber int
 	values         map[string]string
 }
 
 type Stream struct {
-	lastMillisecondsTime int
+	lastMillisecondsTime int64
 	lastSequenceNumber   int
 	entries              []StreamEntry
 }

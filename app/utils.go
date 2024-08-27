@@ -52,7 +52,7 @@ func readResp(reader *bufio.Reader) (string, error) {
 	return message[:len(message)-2], nil
 }
 
-func findMostRecentEntryByTimestamp(stream Stream, search int) (StreamEntry, bool) {
+func findMostRecentEntryByTimestamp(stream Stream, search int64) (StreamEntry, bool) {
 	found := false
 	entry := StreamEntry{}
 	minSeqNumber := -1
