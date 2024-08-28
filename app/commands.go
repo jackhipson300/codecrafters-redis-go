@@ -458,7 +458,7 @@ func xrangeCommand(args []string, conn net.Conn) error {
 			return err
 		}
 	}
-	if len(endIdParts) == 2 {
+	if len(endIdParts) == 2 && endId != "+" {
 		endSeqNum, err = strconv.Atoi(endIdParts[1])
 		if err != nil {
 			return err
@@ -472,9 +472,12 @@ func xrangeCommand(args []string, conn net.Conn) error {
 			return err
 		}
 	}
-	endTimestamp, err := strconv.ParseInt(endIdParts[0], 10, 64)
-	if err != nil {
-		return err
+	endTimestamp := int64(math.MaxInt64)
+	if endId != "+" {
+		endTimestamp, err = strconv.ParseInt(endIdParts[0], 10, 64)
+		if err != nil {
+			return err
+		}
 	}
 
 	innerRespArrs := []string{}
