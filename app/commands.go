@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -430,6 +431,74 @@ func xaddCommand(args []string, conn net.Conn) error {
 	return nil
 }
 
+func xrangeCommand(args []string, conn net.Conn) error {
+	var err error
+	if len(args) < 3 {
+		return fmt.Errorf("error performing xrange: not enough args")
+	}
+
+	streamId := args[0]
+	stream, exists := streamCache[streamId]
+	if !exists {
+		_, err := write(conn, []byte("*0\r\n"))
+		return err
+	}
+
+	startId := args[1]
+	endId := args[2]
+
+	startIdParts := strings.Split(startId, "-")
+	endIdParts := strings.Split(endId, "-")
+
+	startSeqNum := 0
+	endSeqNum := math.MaxInt
+	if len(startIdParts) == 2 {
+		startSeqNum, err = strconv.Atoi(startIdParts[1])
+		if err != nil {
+			return err
+		}
+	}
+	if len(endIdParts) == 2 {
+		endSeqNum, err = strconv.Atoi(endIdParts[1])
+		if err != nil {
+			return err
+		}
+	}
+
+	startTimestamp, err := strconv.ParseInt(startIdParts[0], 10, 64)
+	if err != nil {
+		return err
+	}
+	endTimestamp, err := strconv.ParseInt(endIdParts[0], 10, 64)
+	if err != nil {
+		return err
+	}
+
+	innerRespArrs := []string{}
+	for _, entry := range stream.entries {
+		validTimestamp := entry.timestamp >= startTimestamp && entry.timestamp <= endTimestamp
+		validSeqNum := entry.sequenceNumber >= startSeqNum && entry.sequenceNumber <= endSeqNum
+		if validTimestamp && validSeqNum {
+			entryId := fmt.Sprintf("%d-%d", entry.timestamp, entry.sequenceNumber)
+			respParts := []string{}
+			for key, value := range entry.values {
+				respParts = append(respParts, key, value)
+			}
+
+			respStr := "*2\r\n" + toRespStr(entryId) + toRespArr(respParts...)
+			innerRespArrs = append(innerRespArrs, respStr)
+		}
+	}
+
+	response := fmt.Sprintf("*%d\r\n", len(innerRespArrs)) + strings.Join(innerRespArrs, "")
+	_, err = write(conn, []byte(response))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type Command struct {
 	handler         func([]string, net.Conn) error
 	shouldReplicate bool
@@ -448,6 +517,7 @@ var commands = map[string]Command{
 	"wait":     {handler: waitCommand, shouldReplicate: false},
 	"type":     {handler: typeCommand, shouldReplicate: false},
 	"xadd":     {handler: xaddCommand, shouldReplicate: false},
+	"xrange":   {handler: xrangeCommand, shouldReplicate: false},
 }
 
 func runCommand(rawCommand string, commandName string, args []string, conn net.Conn) {
