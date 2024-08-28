@@ -452,7 +452,7 @@ func xrangeCommand(args []string, conn net.Conn) error {
 
 	startSeqNum := 0
 	endSeqNum := math.MaxInt
-	if len(startIdParts) == 2 {
+	if len(startIdParts) == 2 && startId != "-" {
 		startSeqNum, err = strconv.Atoi(startIdParts[1])
 		if err != nil {
 			return err
@@ -465,9 +465,12 @@ func xrangeCommand(args []string, conn net.Conn) error {
 		}
 	}
 
-	startTimestamp, err := strconv.ParseInt(startIdParts[0], 10, 64)
-	if err != nil {
-		return err
+	startTimestamp := int64(0)
+	if startId != "-" {
+		startTimestamp, err = strconv.ParseInt(startIdParts[0], 10, 64)
+		if err != nil {
+			return err
+		}
 	}
 	endTimestamp, err := strconv.ParseInt(endIdParts[0], 10, 64)
 	if err != nil {
