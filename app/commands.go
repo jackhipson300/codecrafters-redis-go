@@ -15,6 +15,7 @@ const emptyRdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a726564
 const xaddEntryIdOlderThanLastErr = "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
 const xaddEntryIdZeroErr = "-ERR The ID specified in XADD must be greater than 0-0\r\n"
 const incrNotNumErr = "-ERR value is not an integer or out of range\r\n"
+const execNotInQueueModeErr = "-ERR EXEC without MULTI\r\n"
 
 var xreadBlockMutex = sync.Mutex{}
 var xreadBlockSignal = sync.NewCond(&xreadBlockMutex)
@@ -640,6 +641,11 @@ func multiCommand(args []string, conn net.Conn) error {
 }
 
 func execCommand(args []string, conn net.Conn) error {
+	if !queueFlag {
+		_, err := write(conn, []byte(execNotInQueueModeErr))
+		return err
+	}
+
 	queueFlag = false
 	for _, command := range commandQueue {
 		queuedArgs := command[2:]
