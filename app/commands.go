@@ -15,6 +15,7 @@ const xaddEntryIdOlderThanLastErr = "-ERR The ID specified in XADD is equal or s
 const xaddEntryIdZeroErr = "-ERR The ID specified in XADD must be greater than 0-0\r\n"
 const incrNotNumErr = "-ERR value is not an integer or out of range\r\n"
 const execNotInQueueModeErr = "-ERR EXEC without MULTI\r\n"
+const discardNotInQueueModeErr = "-ERR DISCARD without MULTI\r\n"
 
 var xreadBlockMutex = sync.Mutex{}
 var xreadBlockSignal = sync.NewCond(&xreadBlockMutex)
@@ -591,8 +592,19 @@ func execCommand(args []string, client *Client) (string, error) {
 	return response, nil
 }
 
+func discardCommand(args []string, client *Client) (string, error) {
+	if !client.queueFlag {
+		return discardNotInQueueModeErr, nil
+	}
+
+	client.commandQueue = [][]string{}
+	client.queueFlag = false
+
+	return "+OK\r\n", nil
+}
+
 func runCommand(rawCommand string, commandName string, args []string, client *Client) (string, error) {
-	if client.queueFlag && commandName != "exec" {
+	if client.queueFlag && commandName != "exec" && commandName != "discard" {
 		fmt.Printf("Queueing command: %s\n", commandName)
 		client.commandQueue = append(client.commandQueue, append([]string{rawCommand, commandName}, args...))
 		if _, err := client.conn.Write([]byte("+QUEUED\r\n")); err != nil {

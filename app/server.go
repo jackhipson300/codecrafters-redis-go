@@ -95,6 +95,7 @@ func main() {
 		"incr":     {handler: incrCommand, shouldReplicate: false},
 		"multi":    {handler: multiCommand, shouldReplicate: false},
 		"exec":     {handler: execCommand, shouldReplicate: false},
+		"discard":  {handler: discardCommand, shouldReplicate: false},
 	}
 
 	l, err := net.Listen("tcp", "0.0.0.0:"+configParams["port"])
