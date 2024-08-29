@@ -72,5 +72,10 @@ func handleMaster(conn net.Conn, reader *bufio.Reader) {
 		return
 	}
 
-	handleClient(conn, reader)
+	client := Client{
+		conn:         conn,
+		queueFlag:    false,
+		commandQueue: [][]string{},
+	}
+	handleClient(&client, reader)
 }

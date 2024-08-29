@@ -32,6 +32,12 @@ type Stream struct {
 	entries              []StreamEntry
 }
 
+type Client struct {
+	conn         net.Conn
+	queueFlag    bool
+	commandQueue [][]string
+}
+
 var keyValueCache = map[string]CacheItem{}
 var streamCache = map[string]*Stream{}
 var configParams = map[string]string{}
@@ -44,9 +50,6 @@ var setHasOccurred = false
 
 var numAcksSinceLasSet = 0
 var ackLock = sync.Mutex{}
-
-var queueFlag = false
-var commandQueue [][]string
 
 func main() {
 	dirFlag := flag.String("dir", "", "")
@@ -108,7 +111,12 @@ func main() {
 			}
 			reader := bufio.NewReader(conn)
 
-			go handleClient(conn, reader)
+			client := Client{
+				conn:         conn,
+				queueFlag:    false,
+				commandQueue: [][]string{},
+			}
+			go handleClient(&client, reader)
 		}
 	}()
 
@@ -137,8 +145,8 @@ func main() {
 	os.Exit(0)
 }
 
-func handleClient(conn net.Conn, reader *bufio.Reader) {
-	defer conn.Close()
+func handleClient(client *Client, reader *bufio.Reader) {
+	defer client.conn.Close()
 
 	numArgsLeft := 0
 	command := ""
@@ -175,7 +183,7 @@ func handleClient(conn net.Conn, reader *bufio.Reader) {
 		numArgsLeft--
 
 		if numArgsLeft == 0 {
-			runCommand(rawCommand, command, args, conn)
+			runCommand(rawCommand, command, args, client)
 
 			command = ""
 			rawCommand = ""
