@@ -14,6 +14,7 @@ const emptyRdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a726564
 
 const xaddEntryIdOlderThanLastErr = "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
 const xaddEntryIdZeroErr = "-ERR The ID specified in XADD must be greater than 0-0\r\n"
+const incrNotNumErr = "-ERR value is not an integer or out of range\r\n"
 
 var xreadBlockMutex = sync.Mutex{}
 var xreadBlockSignal = sync.NewCond(&xreadBlockMutex)
@@ -613,7 +614,8 @@ func incrCommand(args []string, conn net.Conn) error {
 
 	numberVal, err := strconv.Atoi(item.value)
 	if err != nil {
-		return fmt.Errorf("error performing incr: value is not number")
+		_, err := write(conn, []byte(incrNotNumErr))
+		return err
 	}
 
 	item.value = strconv.Itoa(numberVal + 1)
