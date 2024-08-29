@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
-	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -447,44 +446,74 @@ func xrangeCommand(args []string, conn net.Conn) error {
 	startId := args[1]
 	endId := args[2]
 
-	startIdParts := strings.Split(startId, "-")
-	endIdParts := strings.Split(endId, "-")
-
-	startSeqNum := 0
-	endSeqNum := math.MaxInt
-	if len(startIdParts) == 2 && startId != "-" {
-		startSeqNum, err = strconv.Atoi(startIdParts[1])
-		if err != nil {
-			return err
-		}
-	}
-	if len(endIdParts) == 2 && endId != "+" {
-		endSeqNum, err = strconv.Atoi(endIdParts[1])
-		if err != nil {
-			return err
-		}
-	}
-
-	startTimestamp := int64(0)
-	if startId != "-" {
-		startTimestamp, err = strconv.ParseInt(startIdParts[0], 10, 64)
-		if err != nil {
-			return err
-		}
-	}
-	endTimestamp := int64(math.MaxInt64)
-	if endId != "+" {
-		endTimestamp, err = strconv.ParseInt(endIdParts[0], 10, 64)
-		if err != nil {
-			return err
-		}
+	validEntries, err := getEntriesInRange(*stream, startId, endId)
+	if err != nil {
+		return err
 	}
 
 	innerRespArrs := []string{}
-	for _, entry := range stream.entries {
-		validTimestamp := entry.timestamp >= startTimestamp && entry.timestamp <= endTimestamp
-		validSeqNum := entry.sequenceNumber >= startSeqNum && entry.sequenceNumber <= endSeqNum
-		if validTimestamp && validSeqNum {
+	for _, entry := range validEntries {
+		entryId := fmt.Sprintf("%d-%d", entry.timestamp, entry.sequenceNumber)
+		respParts := []string{}
+		for key, value := range entry.values {
+			respParts = append(respParts, key, value)
+		}
+
+		respStr := "*2\r\n" + toRespStr(entryId) + toRespArr(respParts...)
+		innerRespArrs = append(innerRespArrs, respStr)
+	}
+
+	response := fmt.Sprintf("*%d\r\n", len(innerRespArrs)) + strings.Join(innerRespArrs, "")
+	_, err = write(conn, []byte(response))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func xreadCommand(args []string, conn net.Conn) error {
+	if len(args) < 3 {
+		return fmt.Errorf("error performing xread: not enough args")
+	}
+
+	streamId := args[1]
+	stream, exists := streamCache[streamId]
+	if !exists {
+		_, err := write(conn, []byte("*0\r\n"))
+		return err
+	}
+
+	streams := []*Stream{stream}
+
+	idParts := strings.Split(args[2], "-")
+	timestamp, err := strconv.ParseInt(idParts[0], 10, 64)
+	if err != nil {
+		return err
+	}
+	seqNum, err := strconv.Atoi(idParts[1])
+	if err != nil {
+		return err
+	}
+
+	if timestamp != 0 {
+		timestamp++
+	}
+	if seqNum != 0 {
+		seqNum++
+	}
+
+	startId := fmt.Sprintf("%d-%d", timestamp, seqNum)
+
+	streamRespArrs := []string{}
+	for _, stream := range streams {
+		validEntries, err := getEntriesInRange(*stream, startId, "+")
+		if err != nil {
+			return err
+		}
+
+		innerRespArrs := []string{}
+		for _, entry := range validEntries {
 			entryId := fmt.Sprintf("%d-%d", entry.timestamp, entry.sequenceNumber)
 			respParts := []string{}
 			for key, value := range entry.values {
@@ -494,9 +523,12 @@ func xrangeCommand(args []string, conn net.Conn) error {
 			respStr := "*2\r\n" + toRespStr(entryId) + toRespArr(respParts...)
 			innerRespArrs = append(innerRespArrs, respStr)
 		}
+
+		streamRespStr := "*2\r\n" + toRespStr(streamId) + fmt.Sprintf("*%d\r\n", len(innerRespArrs)) + strings.Join(innerRespArrs, "")
+		streamRespArrs = append(streamRespArrs, streamRespStr)
 	}
 
-	response := fmt.Sprintf("*%d\r\n", len(innerRespArrs)) + strings.Join(innerRespArrs, "")
+	response := fmt.Sprintf("*%d\r\n", len(streams)) + strings.Join(streamRespArrs, "")
 	_, err = write(conn, []byte(response))
 	if err != nil {
 		return err
@@ -524,6 +556,7 @@ var commands = map[string]Command{
 	"type":     {handler: typeCommand, shouldReplicate: false},
 	"xadd":     {handler: xaddCommand, shouldReplicate: false},
 	"xrange":   {handler: xrangeCommand, shouldReplicate: false},
+	"xread":    {handler: xreadCommand, shouldReplicate: false},
 }
 
 func runCommand(rawCommand string, commandName string, args []string, conn net.Conn) {

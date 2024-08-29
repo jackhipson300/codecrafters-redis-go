@@ -5,7 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"net"
+	"strconv"
+	"strings"
 )
 
 const nullRespStr = "$-1\r\n"
@@ -66,4 +69,52 @@ func findMostRecentEntryByTimestamp(stream Stream, search int64) (StreamEntry, b
 	}
 
 	return entry, found
+}
+
+func getEntriesInRange(stream Stream, startId string, endId string) ([]StreamEntry, error) {
+	var err error
+	entries := []StreamEntry{}
+
+	startIdParts := strings.Split(startId, "-")
+	endIdParts := strings.Split(endId, "-")
+
+	startSeqNum := 0
+	endSeqNum := math.MaxInt
+	if len(startIdParts) == 2 && startId != "-" {
+		startSeqNum, err = strconv.Atoi(startIdParts[1])
+		if err != nil {
+			return entries, err
+		}
+	}
+	if len(endIdParts) == 2 && endId != "+" {
+		endSeqNum, err = strconv.Atoi(endIdParts[1])
+		if err != nil {
+			return entries, err
+		}
+	}
+
+	startTimestamp := int64(0)
+	if startId != "-" {
+		startTimestamp, err = strconv.ParseInt(startIdParts[0], 10, 64)
+		if err != nil {
+			return entries, err
+		}
+	}
+	endTimestamp := int64(math.MaxInt64)
+	if endId != "+" {
+		endTimestamp, err = strconv.ParseInt(endIdParts[0], 10, 64)
+		if err != nil {
+			return entries, err
+		}
+	}
+
+	for _, entry := range stream.entries {
+		validTimestamp := entry.timestamp >= startTimestamp && entry.timestamp <= endTimestamp
+		validSeqNum := entry.sequenceNumber >= startSeqNum && entry.sequenceNumber <= endSeqNum
+		if validTimestamp && validSeqNum {
+			entries = append(entries, entry)
+		}
+	}
+
+	return entries, nil
 }
