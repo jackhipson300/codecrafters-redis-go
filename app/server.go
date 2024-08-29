@@ -140,17 +140,16 @@ func handleClient(conn net.Conn, reader *bufio.Reader) {
 			continue
 		}
 
-		switch part[0] {
-		case '$':
+		if part[0] == '$' && len(part) > 1 {
 			continue
-		default:
-			if len(command) == 0 {
-				command = strings.ToLower(part)
-			} else {
-				args = append(args, part)
-			}
-			numArgsLeft--
 		}
+
+		if len(command) == 0 {
+			command = strings.ToLower(part)
+		} else {
+			args = append(args, part)
+		}
+		numArgsLeft--
 
 		if numArgsLeft == 0 {
 			runCommand(rawCommand, command, args, conn)

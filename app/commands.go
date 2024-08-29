@@ -500,7 +500,7 @@ func xreadCommand(args []string, conn net.Conn) error {
 
 	streamIds := []string{}
 	for i := streamsOffset; i < len(args); i++ {
-		if strings.Contains(args[i], "-") {
+		if strings.Contains(args[i], "-") || args[i] == "$" {
 			break
 		}
 		streamIds = append(streamIds, args[i])
@@ -516,14 +516,27 @@ func xreadCommand(args []string, conn net.Conn) error {
 		streams = append(streams, stream)
 	}
 
-	idParts := strings.Split(args[len(streamIds)+streamsOffset], "-")
-	timestamp, err := strconv.ParseInt(idParts[0], 10, 64)
-	if err != nil {
-		return err
-	}
-	seqNum, err := strconv.Atoi(idParts[1])
-	if err != nil {
-		return err
+	var timestamp int64
+	var seqNum int
+	givenEntryId := args[len(streamIds)+streamsOffset]
+
+	if givenEntryId == "$" {
+		var exists bool
+		timestamp, seqNum, exists = findMostRecentEntryId(streams[0])
+		if !exists {
+			timestamp = 0
+			seqNum = 0
+		}
+	} else {
+		idParts := strings.Split(givenEntryId, "-")
+		timestamp, err = strconv.ParseInt(idParts[0], 10, 64)
+		if err != nil {
+			return err
+		}
+		seqNum, err = strconv.Atoi(idParts[1])
+		if err != nil {
+			return err
+		}
 	}
 
 	if timestamp != 0 {

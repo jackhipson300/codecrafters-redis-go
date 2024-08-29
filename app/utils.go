@@ -118,3 +118,26 @@ func getEntriesInRange(stream Stream, startId string, endId string) ([]StreamEnt
 
 	return entries, nil
 }
+
+func findMostRecentEntryId(stream *Stream) (int64, int, bool) {
+	mostRecentTimestamp := int64(-1)
+	mostRecentSeqNum := -1
+
+	if len(stream.entries) == 0 {
+		return int64(0), 0, false
+	}
+
+	for _, entry := range stream.entries {
+		if entry.timestamp == mostRecentTimestamp {
+			if entry.sequenceNumber > mostRecentSeqNum {
+				mostRecentSeqNum = entry.sequenceNumber
+			}
+		}
+		if entry.timestamp > mostRecentTimestamp {
+			mostRecentTimestamp = entry.timestamp
+			mostRecentSeqNum = entry.sequenceNumber
+		}
+	}
+
+	return mostRecentTimestamp, mostRecentSeqNum, true
+}
