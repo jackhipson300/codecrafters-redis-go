@@ -602,7 +602,13 @@ func incrCommand(args []string, conn net.Conn) error {
 	key := args[0]
 	item, exists := keyValueCache[key]
 	if !exists {
-		return fmt.Errorf("error performing incr: key doesn't exist")
+		keyValueCache[key] = CacheItem{
+			value:     "1",
+			expiresAt: -1,
+			itemType:  "string",
+		}
+		_, err := write(conn, []byte(":1\r\n"))
+		return err
 	}
 
 	numberVal, err := strconv.Atoi(item.value)
@@ -611,6 +617,7 @@ func incrCommand(args []string, conn net.Conn) error {
 	}
 
 	item.value = strconv.Itoa(numberVal + 1)
+	keyValueCache[key] = item
 
 	_, err = write(conn, []byte(fmt.Sprintf(":%d\r\n", numberVal+1)))
 	return err
