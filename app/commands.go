@@ -477,16 +477,25 @@ func xreadCommand(args []string, conn net.Conn) error {
 		return fmt.Errorf("error performing xread: not enough args")
 	}
 
-	streamId := args[1]
-	stream, exists := streamCache[streamId]
-	if !exists {
-		_, err := write(conn, []byte("*0\r\n"))
-		return err
+	streamIds := []string{}
+	for i := 1; i < len(args); i++ {
+		if strings.Contains(args[i], "-") {
+			break
+		}
+		streamIds = append(streamIds, args[i])
 	}
 
-	streams := []*Stream{stream}
+	streams := []*Stream{}
+	for _, streamId := range streamIds {
+		stream, exists := streamCache[streamId]
+		if !exists {
+			_, err := write(conn, []byte("*0\r\n"))
+			return err
+		}
+		streams = append(streams, stream)
+	}
 
-	idParts := strings.Split(args[2], "-")
+	idParts := strings.Split(args[len(streamIds)+1], "-")
 	timestamp, err := strconv.ParseInt(idParts[0], 10, 64)
 	if err != nil {
 		return err
@@ -506,7 +515,7 @@ func xreadCommand(args []string, conn net.Conn) error {
 	startId := fmt.Sprintf("%d-%d", timestamp, seqNum)
 
 	streamRespArrs := []string{}
-	for _, stream := range streams {
+	for i, stream := range streams {
 		validEntries, err := getEntriesInRange(*stream, startId, "+")
 		if err != nil {
 			return err
@@ -524,7 +533,7 @@ func xreadCommand(args []string, conn net.Conn) error {
 			innerRespArrs = append(innerRespArrs, respStr)
 		}
 
-		streamRespStr := "*2\r\n" + toRespStr(streamId) + fmt.Sprintf("*%d\r\n", len(innerRespArrs)) + strings.Join(innerRespArrs, "")
+		streamRespStr := "*2\r\n" + toRespStr(streamIds[i]) + fmt.Sprintf("*%d\r\n", len(innerRespArrs)) + strings.Join(innerRespArrs, "")
 		streamRespArrs = append(streamRespArrs, streamRespStr)
 	}
 
