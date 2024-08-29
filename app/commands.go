@@ -591,11 +591,29 @@ func xreadCommand(args []string, conn net.Conn) error {
 	}
 
 	_, err = write(conn, []byte(response))
-	if err != nil {
-		return err
+	return err
+}
+
+func incrCommand(args []string, conn net.Conn) error {
+	if len(args) == 0 {
+		return fmt.Errorf("error performing incr: no args")
 	}
 
-	return nil
+	key := args[0]
+	item, exists := keyValueCache[key]
+	if !exists {
+		return fmt.Errorf("error performing incr: key doesn't exist")
+	}
+
+	numberVal, err := strconv.Atoi(item.value)
+	if err != nil {
+		return fmt.Errorf("error performing incr: value is not number")
+	}
+
+	item.value = strconv.Itoa(numberVal + 1)
+
+	_, err = write(conn, []byte(fmt.Sprintf(":%d\r\n", numberVal+1)))
+	return err
 }
 
 type Command struct {
@@ -618,6 +636,7 @@ var commands = map[string]Command{
 	"xadd":     {handler: xaddCommand, shouldReplicate: false},
 	"xrange":   {handler: xrangeCommand, shouldReplicate: false},
 	"xread":    {handler: xreadCommand, shouldReplicate: false},
+	"incr":     {handler: incrCommand, shouldReplicate: false},
 }
 
 func runCommand(rawCommand string, commandName string, args []string, conn net.Conn) {
