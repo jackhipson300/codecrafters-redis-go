@@ -641,12 +641,21 @@ func multiCommand(args []string, conn net.Conn) error {
 }
 
 func execCommand(args []string, conn net.Conn) error {
+	defer func() {
+		commandQueue = [][]string{}
+		queueFlag = false
+	}()
+
 	if !queueFlag {
 		_, err := write(conn, []byte(execNotInQueueModeErr))
 		return err
 	}
 
-	queueFlag = false
+	if len(commandQueue) == 0 {
+		_, err := write(conn, []byte("*0\r\n"))
+		return err
+	}
+
 	for _, command := range commandQueue {
 		queuedArgs := command[2:]
 		if command[1] != "exec" {
@@ -658,7 +667,7 @@ func execCommand(args []string, conn net.Conn) error {
 }
 
 func runCommand(rawCommand string, commandName string, args []string, conn net.Conn) {
-	if queueFlag {
+	if queueFlag && commandName != "exec" {
 		commandQueue = append(commandQueue, append([]string{rawCommand, commandName}, args...))
 		if _, err := write(conn, []byte("+QUEUED\r\n")); err != nil {
 			fmt.Println("Error responding after queueing command: ", err.Error())
