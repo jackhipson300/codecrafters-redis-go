@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -13,6 +14,9 @@ const emptyRdb = "524544495330303131fa0972656469732d76657205372e322e30fa0a726564
 
 const xaddEntryIdOlderThanLastErr = "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
 const xaddEntryIdZeroErr = "-ERR The ID specified in XADD must be greater than 0-0\r\n"
+
+var xreadBlockMutex = sync.Mutex{}
+var xreadBlockSignal = sync.NewCond(&xreadBlockMutex)
 
 func echoCommand(args []string, conn net.Conn) error {
 	if len(args) == 0 {
@@ -342,6 +346,10 @@ func typeCommand(args []string, conn net.Conn) error {
 }
 
 func xaddCommand(args []string, conn net.Conn) error {
+	xreadBlockMutex.Lock()
+	defer xreadBlockMutex.Unlock()
+	defer xreadBlockSignal.Signal()
+
 	var err error
 	if len(args) < 2 {
 		return fmt.Errorf("error performing xadd: not enough args")
@@ -528,7 +536,13 @@ func xreadCommand(args []string, conn net.Conn) error {
 	startId := fmt.Sprintf("%d-%d", timestamp, seqNum)
 
 	if shouldBlock {
-		time.Sleep(time.Duration(blockDelayMs) * time.Millisecond)
+		if blockDelayMs > 0 {
+			time.Sleep(time.Duration(blockDelayMs) * time.Millisecond)
+		} else {
+			xreadBlockMutex.Lock()
+			defer xreadBlockMutex.Unlock()
+			xreadBlockSignal.Wait()
+		}
 	}
 
 	streamRespArrs := []string{}
