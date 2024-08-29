@@ -19,6 +19,13 @@ const incrNotNumErr = "-ERR value is not an integer or out of range\r\n"
 var xreadBlockMutex = sync.Mutex{}
 var xreadBlockSignal = sync.NewCond(&xreadBlockMutex)
 
+type Command struct {
+	handler         func([]string, net.Conn) error
+	shouldReplicate bool
+}
+
+var commands map[string]Command
+
 func echoCommand(args []string, conn net.Conn) error {
 	if len(args) == 0 {
 		return fmt.Errorf("error performing echo: no args")
@@ -625,30 +632,34 @@ func incrCommand(args []string, conn net.Conn) error {
 	return err
 }
 
-type Command struct {
-	handler         func([]string, net.Conn) error
-	shouldReplicate bool
+func multiCommand(args []string, conn net.Conn) error {
+	queueFlag = true
+
+	_, err := write(conn, []byte("+OK\r\n"))
+	return err
 }
 
-var commands = map[string]Command{
-	"echo":     {handler: echoCommand, shouldReplicate: false},
-	"ping":     {handler: pingCommand, shouldReplicate: false},
-	"set":      {handler: setCommand, shouldReplicate: true},
-	"get":      {handler: getCommand, shouldReplicate: false},
-	"config":   {handler: configCommand, shouldReplicate: false},
-	"keys":     {handler: keysCommand, shouldReplicate: false},
-	"info":     {handler: infoCommand, shouldReplicate: false},
-	"replconf": {handler: replconfCommand, shouldReplicate: false},
-	"psync":    {handler: psyncCommand, shouldReplicate: false},
-	"wait":     {handler: waitCommand, shouldReplicate: false},
-	"type":     {handler: typeCommand, shouldReplicate: false},
-	"xadd":     {handler: xaddCommand, shouldReplicate: false},
-	"xrange":   {handler: xrangeCommand, shouldReplicate: false},
-	"xread":    {handler: xreadCommand, shouldReplicate: false},
-	"incr":     {handler: incrCommand, shouldReplicate: false},
+func execCommand(args []string, conn net.Conn) error {
+	queueFlag = false
+	for _, command := range commandQueue {
+		queuedArgs := command[2:]
+		if command[1] != "exec" {
+			runCommand(command[0], command[1], queuedArgs, conn)
+		}
+	}
+
+	return nil
 }
 
 func runCommand(rawCommand string, commandName string, args []string, conn net.Conn) {
+	if queueFlag {
+		commandQueue = append(commandQueue, append([]string{rawCommand, commandName}, args...))
+		if _, err := write(conn, []byte("+QUEUED\r\n")); err != nil {
+			fmt.Println("Error responding after queueing command: ", err.Error())
+		}
+		return
+	}
+
 	command, exists := commands[commandName]
 	if !exists {
 		fmt.Printf("Error running command '%s': command does not exist\n", commandName)

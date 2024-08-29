@@ -45,6 +45,9 @@ var setHasOccurred = false
 var numAcksSinceLasSet = 0
 var ackLock = sync.Mutex{}
 
+var queueFlag = false
+var commandQueue [][]string
+
 func main() {
 	dirFlag := flag.String("dir", "", "")
 	dbFilenameFlag := flag.String("dbfilename", "", "")
@@ -69,6 +72,26 @@ func main() {
 	if configParams["role"] == "master" {
 		configParams["replId"] = generateReplId()
 		configParams["replOffset"] = "0"
+	}
+
+	commands = map[string]Command{
+		"echo":     {handler: echoCommand, shouldReplicate: false},
+		"ping":     {handler: pingCommand, shouldReplicate: false},
+		"set":      {handler: setCommand, shouldReplicate: true},
+		"get":      {handler: getCommand, shouldReplicate: false},
+		"config":   {handler: configCommand, shouldReplicate: false},
+		"keys":     {handler: keysCommand, shouldReplicate: false},
+		"info":     {handler: infoCommand, shouldReplicate: false},
+		"replconf": {handler: replconfCommand, shouldReplicate: false},
+		"psync":    {handler: psyncCommand, shouldReplicate: false},
+		"wait":     {handler: waitCommand, shouldReplicate: false},
+		"type":     {handler: typeCommand, shouldReplicate: false},
+		"xadd":     {handler: xaddCommand, shouldReplicate: false},
+		"xrange":   {handler: xrangeCommand, shouldReplicate: false},
+		"xread":    {handler: xreadCommand, shouldReplicate: false},
+		"incr":     {handler: incrCommand, shouldReplicate: false},
+		"multi":    {handler: multiCommand, shouldReplicate: false},
+		"exec":     {handler: execCommand, shouldReplicate: false},
 	}
 
 	l, err := net.Listen("tcp", "0.0.0.0:"+configParams["port"])
