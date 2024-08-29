@@ -183,7 +183,14 @@ func handleClient(client *Client, reader *bufio.Reader) {
 		numArgsLeft--
 
 		if numArgsLeft == 0 {
-			runCommand(rawCommand, command, args, client)
+			response, err := runCommand(rawCommand, command, args, client)
+			if err != nil {
+				fmt.Printf("Error performing command %s: %s\n", command, err.Error())
+			} else if configParams["role"] == "master" || command == "replconf" || command == "get" || command == "info" {
+				if _, err := client.conn.Write([]byte(response)); err != nil {
+					fmt.Println("Error sending command response:", err.Error())
+				}
+			}
 
 			command = ""
 			rawCommand = ""

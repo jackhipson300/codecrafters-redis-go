@@ -20,33 +20,25 @@ var xreadBlockMutex = sync.Mutex{}
 var xreadBlockSignal = sync.NewCond(&xreadBlockMutex)
 
 type Command struct {
-	handler         func([]string, *Client) error
+	handler         func([]string, *Client) (string, error)
 	shouldReplicate bool
 }
 
 var commands map[string]Command
 
-func echoCommand(args []string, client *Client) error {
+func echoCommand(args []string, client *Client) (string, error) {
 	if len(args) == 0 {
-		return fmt.Errorf("error performing echo: no args")
+		return "", fmt.Errorf("error performing echo: no args")
 	}
 
-	if _, err := write(client.conn, []byte(toRespStr(args[0]))); err != nil {
-		return fmt.Errorf("error performing echo: %w", err)
-	}
-
-	return nil
+	return toRespStr(args[0]), nil
 }
 
-func pingCommand(args []string, client *Client) error {
-	if _, err := write(client.conn, []byte("+PONG\r\n")); err != nil {
-		return fmt.Errorf("error performing png: %w", err)
-	}
-
-	return nil
+func pingCommand(args []string, client *Client) (string, error) {
+	return "+PONG\r\n", nil
 }
 
-func setCommand(args []string, client *Client) error {
+func setCommand(args []string, client *Client) (string, error) {
 	now := time.Now()
 
 	setHasOccurred = true
@@ -56,7 +48,7 @@ func setCommand(args []string, client *Client) error {
 	ackLock.Unlock()
 
 	if len(args) < 2 {
-		return fmt.Errorf("error performing set: not enough args")
+		return "", fmt.Errorf("error performing set: not enough args")
 	}
 
 	expiresAt := int64(-1)
@@ -78,18 +70,14 @@ func setCommand(args []string, client *Client) error {
 		expiresAt: expiresAt,
 		itemType:  "string",
 	}
-	if _, err := write(client.conn, []byte("+OK\r\n")); err != nil {
-		return fmt.Errorf("error performing set: %w", err)
-	}
-
-	return nil
+	return "+OK\r\n", nil
 }
 
-func getCommand(args []string, client *Client) error {
+func getCommand(args []string, client *Client) (string, error) {
 	now := time.Now().UnixMilli()
 
 	if len(args) == 0 {
-		return fmt.Errorf("error performing get: no args")
+		return "", fmt.Errorf("error performing get: no args")
 	}
 
 	var value string
@@ -109,16 +97,13 @@ func getCommand(args []string, client *Client) error {
 			expiresAt = valueInfo.expiresAt
 			value, err = getValue(valueInfo)
 			if err != nil {
-				return fmt.Errorf("error performing get: %w", err)
+				return "", fmt.Errorf("error performing get: %w", err)
 			}
 		}
 	}
 
 	if value == "" {
-		if _, err := client.conn.Write([]byte(nullRespStr)); err != nil {
-			return fmt.Errorf("error performing get: %w", err)
-		}
-		return fmt.Errorf("error performing get: entry does not exist")
+		return nullRespStr, nil
 	}
 
 	writeVal := toRespStr(value)
@@ -127,42 +112,31 @@ func getCommand(args []string, client *Client) error {
 		writeVal = nullRespStr
 	}
 
-	if _, err := client.conn.Write([]byte(writeVal)); err != nil {
-		return fmt.Errorf("error performing get: %w", err)
-	}
-
-	return nil
+	return writeVal, nil
 }
 
-func configCommand(args []string, client *Client) error {
+func configCommand(args []string, client *Client) (string, error) {
 	if len(args) == 0 {
-		return fmt.Errorf("error performing config: no args")
+		return "", fmt.Errorf("error performing config: no args")
 	}
 
-	switch strings.ToLower(args[0]) {
-	case "get":
-		if len(args) < 2 {
-			return fmt.Errorf("error performing config get: not enough args")
-		}
-
-		response := nullRespStr
-		value, exists := configParams[args[1]]
-		if exists && value != "" {
-			response = fmt.Sprintf("*2\r\n%s%s", toRespStr(args[1]), toRespStr(value))
-		}
-
-		if _, err := write(client.conn, []byte(response)); err != nil {
-			return fmt.Errorf("error performing config get: %w", err)
-		}
+	if len(args) < 2 {
+		return "", fmt.Errorf("error performing config get: not enough args")
 	}
 
-	return nil
+	response := nullRespStr
+	value, exists := configParams[args[1]]
+	if exists && value != "" {
+		response = fmt.Sprintf("*2\r\n%s%s", toRespStr(args[1]), toRespStr(value))
+	}
+
+	return response, nil
 }
 
-func keysCommand(args []string, client *Client) error {
+func keysCommand(args []string, client *Client) (string, error) {
 	keysMap, err := getKeys()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	response := fmt.Sprintf("*%d\r\n", len(keysMap))
@@ -170,54 +144,38 @@ func keysCommand(args []string, client *Client) error {
 		response += toRespStr(key)
 	}
 
-	if _, err := write(client.conn, []byte(response)); err != nil {
-		return fmt.Errorf("error performing keys: %w", err)
-	}
-
-	return nil
+	return response, nil
 }
 
-func infoCommand(args []string, client *Client) error {
+func infoCommand(args []string, client *Client) (string, error) {
 	if len(args) == 0 {
-		return fmt.Errorf("error performing info: no args")
+		return "", fmt.Errorf("error performing info: no args")
 	}
 
-	if args[0] == "replication" {
-		response := "role:" + configParams["role"]
-		if configParams["role"] == "master" {
-			addToInfoResponse("master_replid", configParams["replId"], &response)
-			addToInfoResponse("master_repl_offset", configParams["replOffset"], &response)
-		}
-
-		if _, err := client.conn.Write([]byte(toRespStr(response))); err != nil {
-			return fmt.Errorf("error performing info: %w", err)
-		}
+	response := "role:" + configParams["role"]
+	if configParams["role"] == "master" {
+		addToInfoResponse("master_replid", configParams["replId"], &response)
+		addToInfoResponse("master_repl_offset", configParams["replOffset"], &response)
 	}
 
-	return nil
+	return toRespStr(response), nil
 }
 
-func replconfCommand(args []string, client *Client) error {
+func replconfCommand(args []string, client *Client) (string, error) {
 	if len(args) == 0 {
-		return fmt.Errorf("error performing replconf: no args")
+		return "", fmt.Errorf("error performing replconf: no args")
 	}
 
 	switch strings.ToLower(args[0]) {
 	case "listening-port":
-		if _, err := client.conn.Write([]byte("+OK\r\n")); err != nil {
-			return fmt.Errorf("error performing replconf: %w", err)
-		}
+		return "+OK\r\n", nil
 	case "capa":
-		if _, err := client.conn.Write([]byte("+OK\r\n")); err != nil {
-			return fmt.Errorf("error performing replconf: %w", err)
-		}
+		return "+OK\r\n", nil
 	case "getack":
-		if _, err := client.conn.Write([]byte(toRespArr("REPLCONF", "ACK", strconv.Itoa(bytesProcessed)))); err != nil {
-			return fmt.Errorf("error performing replconf: %w", err)
-		}
+		return toRespArr("REPLCONF", "ACK", strconv.Itoa(bytesProcessed)), nil
 	case "ack":
 		if len(args) < 2 {
-			return fmt.Errorf("error handling replconf ack: not enough args")
+			return "", fmt.Errorf("error handling replconf ack: not enough args")
 		}
 
 		ackLock.Lock()
@@ -225,24 +183,24 @@ func replconfCommand(args []string, client *Client) error {
 		ackLock.Unlock()
 	}
 
-	return nil
+	return "", fmt.Errorf("unsupported replconf")
 }
 
-func psyncCommand(args []string, client *Client) error {
+func psyncCommand(args []string, client *Client) (string, error) {
 	if len(args) < 2 {
-		return fmt.Errorf("error performing psync: not enough args")
+		return "", fmt.Errorf("error performing psync: not enough args")
 	}
 
 	if args[0] == "?" {
 		response := fmt.Sprintf("+FULLRESYNC %s 0\r\n", configParams["replId"])
-		if _, err := write(client.conn, []byte(response)); err != nil {
-			return fmt.Errorf("error performing psync: %w", err)
+		if _, err := client.conn.Write([]byte(response)); err != nil {
+			return "", fmt.Errorf("error performing psync: %w", err)
 		}
 
 		emptyRdbAsBytes, _ := hex.DecodeString(emptyRdb)
 		fileResponse := append([]byte(fmt.Sprintf("$%d\r\n", len(emptyRdbAsBytes))), emptyRdbAsBytes...)
-		if _, err := write(client.conn, fileResponse); err != nil {
-			return fmt.Errorf("error performing psync: %w", err)
+		if _, err := client.conn.Write(fileResponse); err != nil {
+			return "", fmt.Errorf("error performing psync: %w", err)
 		}
 
 		replicasLock.Lock()
@@ -251,12 +209,12 @@ func psyncCommand(args []string, client *Client) error {
 		replicas = append(replicas, client.conn)
 	}
 
-	return nil
+	return "", nil
 }
 
-func waitCommand(args []string, client *Client) error {
+func waitCommand(args []string, client *Client) (string, error) {
 	if len(args) < 2 {
-		return fmt.Errorf("error performing wait: not enough args")
+		return "", fmt.Errorf("error performing wait: not enough args")
 	}
 
 	if !setHasOccurred {
@@ -267,11 +225,7 @@ func waitCommand(args []string, client *Client) error {
 		numAcks := len(replicas)
 
 		response := fmt.Sprintf(":%d\r\n", numAcks)
-		if _, err := client.conn.Write([]byte(response)); err != nil {
-			return fmt.Errorf("error performing wait: %w", err)
-		}
-
-		return nil
+		return response, nil
 	}
 
 	replicasLock.Lock()
@@ -284,11 +238,11 @@ func waitCommand(args []string, client *Client) error {
 
 	requiredAcks, err := strconv.Atoi(args[0])
 	if err != nil {
-		return fmt.Errorf("error performing wait: %w", err)
+		return "", fmt.Errorf("error performing wait: %w", err)
 	}
 	timeoutMS, err := strconv.Atoi(args[1])
 	if err != nil {
-		return fmt.Errorf("error performing wait: %w", err)
+		return "", fmt.Errorf("error performing wait: %w", err)
 	}
 
 	timeout := time.Duration(timeoutMS) * time.Millisecond
@@ -302,24 +256,18 @@ func waitCommand(args []string, client *Client) error {
 		case <-ticker.C:
 			if numAcksSinceLasSet >= requiredAcks {
 				response := fmt.Sprintf(":%d\r\n", numAcksSinceLasSet)
-				if _, err := client.conn.Write([]byte(response)); err != nil {
-					return fmt.Errorf("error performing wait: %w", err)
-				}
-				return nil
+				return response, nil
 			}
 		case <-timeoutChannel:
 			response := fmt.Sprintf(":%d\r\n", numAcksSinceLasSet)
-			if _, err := client.conn.Write([]byte(response)); err != nil {
-				return fmt.Errorf("error performing wait: %w", err)
-			}
-			return nil
+			return response, nil
 		}
 	}
 }
 
-func typeCommand(args []string, client *Client) error {
+func typeCommand(args []string, client *Client) (string, error) {
 	if len(args) == 0 {
-		return fmt.Errorf("error performing type command: no args")
+		return "", fmt.Errorf("error performing type command: no args")
 	}
 
 	entry, exists := keyValueCache[args[0]]
@@ -331,7 +279,7 @@ func typeCommand(args []string, client *Client) error {
 		} else if len(rdbFile) != 0 {
 			keys, err := getKeys()
 			if err != nil {
-				return fmt.Errorf("error performing type command: %w", err)
+				return "", fmt.Errorf("error performing type command: %w", err)
 			}
 			_, exists = keys[args[0]]
 			if exists {
@@ -341,26 +289,20 @@ func typeCommand(args []string, client *Client) error {
 	}
 
 	if itemType != "" {
-		if _, err := write(client.conn, []byte(fmt.Sprintf("+%s\r\n", itemType))); err != nil {
-			return fmt.Errorf("error performing type command: %w", err)
-		}
+		return fmt.Sprintf("+%s\r\n", itemType), nil
 	} else {
-		if _, err := write(client.conn, []byte("+none\r\n")); err != nil {
-			return fmt.Errorf("error performing type command: %w", err)
-		}
+		return "+none\r\n", nil
 	}
-
-	return nil
 }
 
-func xaddCommand(args []string, client *Client) error {
+func xaddCommand(args []string, client *Client) (string, error) {
 	xreadBlockMutex.Lock()
 	defer xreadBlockMutex.Unlock()
 	defer xreadBlockSignal.Signal()
 
 	var err error
 	if len(args) < 2 {
-		return fmt.Errorf("error performing xadd: not enough args")
+		return "", fmt.Errorf("error performing xadd: not enough args")
 	}
 
 	streamId := args[0]
@@ -383,12 +325,12 @@ func xaddCommand(args []string, client *Client) error {
 	} else {
 		entryIdParts := strings.Split(entryId, "-")
 		if len(entryIdParts) < 2 {
-			return fmt.Errorf("error performing xadd: invalid entry id")
+			return "", fmt.Errorf("error performing xadd: invalid entry id")
 		}
 
 		millisecondsTime, err = strconv.ParseInt(entryIdParts[0], 10, 64)
 		if err != nil {
-			return fmt.Errorf("error performing xadd: invalid entry id: %w", err)
+			return "", fmt.Errorf("error performing xadd: invalid entry id: %w", err)
 		}
 
 		sequenceNumber = 0
@@ -404,22 +346,20 @@ func xaddCommand(args []string, client *Client) error {
 		} else {
 			sequenceNumber, err = strconv.Atoi(entryIdParts[1])
 			if err != nil {
-				return fmt.Errorf("error performing xadd: invalid entry id: %w", err)
+				return "", fmt.Errorf("error performing xadd: invalid entry id: %w", err)
 			}
 		}
 	}
 
 	if millisecondsTime == 0 && sequenceNumber == 0 && len(stream.entries) > 0 {
-		_, err := write(client.conn, []byte(xaddEntryIdZeroErr))
-		return err
+		return xaddEntryIdZeroErr, nil
 	}
 
 	millisecondsTimeInvalid := stream.lastMillisecondsTime > millisecondsTime
 	sequenceNumberInvalid := stream.lastMillisecondsTime == millisecondsTime &&
 		stream.lastSequenceNumber >= sequenceNumber
 	if millisecondsTimeInvalid || sequenceNumberInvalid {
-		_, err := write(client.conn, []byte(xaddEntryIdOlderThanLastErr))
-		return err
+		return xaddEntryIdOlderThanLastErr, nil
 	}
 
 	stream.lastMillisecondsTime = millisecondsTime
@@ -439,24 +379,19 @@ func xaddCommand(args []string, client *Client) error {
 	}
 
 	entryId = fmt.Sprintf("%d-%d", millisecondsTime, sequenceNumber)
-	if _, err := write(client.conn, []byte(toRespStr(entryId))); err != nil {
-		return fmt.Errorf("error performing xadd: %w", err)
-	}
-
-	return nil
+	return toRespStr(entryId), nil
 }
 
-func xrangeCommand(args []string, client *Client) error {
+func xrangeCommand(args []string, client *Client) (string, error) {
 	var err error
 	if len(args) < 3 {
-		return fmt.Errorf("error performing xrange: not enough args")
+		return "", fmt.Errorf("error performing xrange: not enough args")
 	}
 
 	streamId := args[0]
 	stream, exists := streamCache[streamId]
 	if !exists {
-		_, err := write(client.conn, []byte("*0\r\n"))
-		return err
+		return "*0\r\n", nil
 	}
 
 	startId := args[1]
@@ -464,7 +399,7 @@ func xrangeCommand(args []string, client *Client) error {
 
 	validEntries, err := getEntriesInRange(*stream, startId, endId)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	innerRespArrs := []string{}
@@ -480,18 +415,13 @@ func xrangeCommand(args []string, client *Client) error {
 	}
 
 	response := fmt.Sprintf("*%d\r\n", len(innerRespArrs)) + strings.Join(innerRespArrs, "")
-	_, err = write(client.conn, []byte(response))
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return response, nil
 }
 
-func xreadCommand(args []string, client *Client) error {
+func xreadCommand(args []string, client *Client) (string, error) {
 	var err error
 	if len(args) < 3 {
-		return fmt.Errorf("error performing xread: not enough args")
+		return "", fmt.Errorf("error performing xread: not enough args")
 	}
 
 	shouldBlock := args[0] == "block"
@@ -501,7 +431,7 @@ func xreadCommand(args []string, client *Client) error {
 	if shouldBlock {
 		blockDelayMs, err = strconv.ParseInt(blockDelayStr, 10, 64)
 		if err != nil {
-			return err
+			return "", err
 		}
 		streamsOffset = 3
 	}
@@ -518,8 +448,7 @@ func xreadCommand(args []string, client *Client) error {
 	for _, streamId := range streamIds {
 		stream, exists := streamCache[streamId]
 		if !exists {
-			_, err := write(client.conn, []byte("*0\r\n"))
-			return err
+			return "*0\r\n", nil
 		}
 		streams = append(streams, stream)
 	}
@@ -539,11 +468,11 @@ func xreadCommand(args []string, client *Client) error {
 		idParts := strings.Split(givenEntryId, "-")
 		timestamp, err = strconv.ParseInt(idParts[0], 10, 64)
 		if err != nil {
-			return err
+			return "", err
 		}
 		seqNum, err = strconv.Atoi(idParts[1])
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 
@@ -570,7 +499,7 @@ func xreadCommand(args []string, client *Client) error {
 	for i, stream := range streams {
 		validEntries, err := getEntriesInRange(*stream, startId, "+")
 		if err != nil {
-			return err
+			return "", err
 		}
 
 		if shouldBlock && len(validEntries) == 0 {
@@ -598,13 +527,12 @@ func xreadCommand(args []string, client *Client) error {
 		response = "$-1\r\n"
 	}
 
-	_, err = write(client.conn, []byte(response))
-	return err
+	return response, nil
 }
 
-func incrCommand(args []string, client *Client) error {
+func incrCommand(args []string, client *Client) (string, error) {
 	if len(args) == 0 {
-		return fmt.Errorf("error performing incr: no args")
+		return "", fmt.Errorf("error performing incr: no args")
 	}
 
 	key := args[0]
@@ -615,63 +543,62 @@ func incrCommand(args []string, client *Client) error {
 			expiresAt: -1,
 			itemType:  "string",
 		}
-		_, err := write(client.conn, []byte(":1\r\n"))
-		return err
+		return ":1\r\n", nil
 	}
 
 	numberVal, err := strconv.Atoi(item.value)
 	if err != nil {
-		_, err := write(client.conn, []byte(incrNotNumErr))
-		return err
+		return incrNotNumErr, nil
 	}
 
 	item.value = strconv.Itoa(numberVal + 1)
 	keyValueCache[key] = item
 
-	_, err = write(client.conn, []byte(fmt.Sprintf(":%d\r\n", numberVal+1)))
-	return err
+	return fmt.Sprintf(":%d\r\n", numberVal+1), nil
 }
 
-func multiCommand(args []string, client *Client) error {
+func multiCommand(args []string, client *Client) (string, error) {
 	client.queueFlag = true
 
-	_, err := write(client.conn, []byte("+OK\r\n"))
-	return err
+	return "+OK\r\n", nil
 }
 
-func execCommand(args []string, client *Client) error {
+func execCommand(args []string, client *Client) (string, error) {
 	defer func() {
 		client.commandQueue = [][]string{}
 		client.queueFlag = false
 	}()
 
 	if !client.queueFlag {
-		_, err := write(client.conn, []byte(execNotInQueueModeErr))
-		return err
+		return execNotInQueueModeErr, nil
 	}
 
 	if len(client.commandQueue) == 0 {
-		_, err := write(client.conn, []byte("*0\r\n"))
-		return err
+		return "*0\r\n", nil
 	}
 
+	client.queueFlag = false
+	responses := []string{}
 	for _, command := range client.commandQueue {
 		queuedArgs := command[2:]
 		if command[1] != "exec" {
-			runCommand(command[0], command[1], queuedArgs, client)
+			response, _ := runCommand(command[0], command[1], queuedArgs, client)
+			responses = append(responses, response)
 		}
 	}
 
-	return nil
+	response := fmt.Sprintf("*%d\r\n", len(responses)) + strings.Join(responses, "")
+	return response, nil
 }
 
-func runCommand(rawCommand string, commandName string, args []string, client *Client) {
+func runCommand(rawCommand string, commandName string, args []string, client *Client) (string, error) {
 	if client.queueFlag && commandName != "exec" {
+		fmt.Printf("Queueing command: %s\n", commandName)
 		client.commandQueue = append(client.commandQueue, append([]string{rawCommand, commandName}, args...))
-		if _, err := write(client.conn, []byte("+QUEUED\r\n")); err != nil {
+		if _, err := client.conn.Write([]byte("+QUEUED\r\n")); err != nil {
 			fmt.Println("Error responding after queueing command: ", err.Error())
 		}
-		return
+		return "", nil
 	}
 
 	command, exists := commands[commandName]
@@ -681,9 +608,9 @@ func runCommand(rawCommand string, commandName string, args []string, client *Cl
 
 	fmt.Printf("%s running command: %s %v\n", configParams["role"], commandName, args)
 
-	err := command.handler(args, client)
+	response, err := command.handler(args, client)
 	if err != nil {
-		fmt.Println("Error running command: ", err.Error())
+		return "", err
 	}
 
 	bytesProcessed += len(rawCommand)
@@ -694,11 +621,13 @@ func runCommand(rawCommand string, commandName string, args []string, client *Cl
 
 		for _, replica := range replicas {
 			go func() {
-				if _, err := replica.Write([]byte(rawCommand)); err != nil {
-					fmt.Println("Failed to relay command to replica", err.Error())
+				if _, innerErr := replica.Write([]byte(rawCommand)); innerErr != nil {
+					fmt.Println("Failed to relay command to replica", innerErr.Error())
 					return
 				}
 			}()
 		}
 	}
+
+	return response, err
 }
