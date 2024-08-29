@@ -473,12 +473,25 @@ func xrangeCommand(args []string, conn net.Conn) error {
 }
 
 func xreadCommand(args []string, conn net.Conn) error {
+	var err error
 	if len(args) < 3 {
 		return fmt.Errorf("error performing xread: not enough args")
 	}
 
+	shouldBlock := args[0] == "block"
+	blockDelayStr := args[1]
+	blockDelayMs := int64(0)
+	streamsOffset := 1
+	if shouldBlock {
+		blockDelayMs, err = strconv.ParseInt(blockDelayStr, 10, 64)
+		if err != nil {
+			return err
+		}
+		streamsOffset = 3
+	}
+
 	streamIds := []string{}
-	for i := 1; i < len(args); i++ {
+	for i := streamsOffset; i < len(args); i++ {
 		if strings.Contains(args[i], "-") {
 			break
 		}
@@ -495,7 +508,7 @@ func xreadCommand(args []string, conn net.Conn) error {
 		streams = append(streams, stream)
 	}
 
-	idParts := strings.Split(args[len(streamIds)+1], "-")
+	idParts := strings.Split(args[len(streamIds)+streamsOffset], "-")
 	timestamp, err := strconv.ParseInt(idParts[0], 10, 64)
 	if err != nil {
 		return err
@@ -514,11 +527,19 @@ func xreadCommand(args []string, conn net.Conn) error {
 
 	startId := fmt.Sprintf("%d-%d", timestamp, seqNum)
 
+	if shouldBlock {
+		time.Sleep(time.Duration(blockDelayMs) * time.Millisecond)
+	}
+
 	streamRespArrs := []string{}
 	for i, stream := range streams {
 		validEntries, err := getEntriesInRange(*stream, startId, "+")
 		if err != nil {
 			return err
+		}
+
+		if shouldBlock && len(validEntries) == 0 {
+			continue
 		}
 
 		innerRespArrs := []string{}
@@ -538,6 +559,10 @@ func xreadCommand(args []string, conn net.Conn) error {
 	}
 
 	response := fmt.Sprintf("*%d\r\n", len(streams)) + strings.Join(streamRespArrs, "")
+	if shouldBlock && len(streamRespArrs) == 0 {
+		response = "$-1\r\n"
+	}
+
 	_, err = write(conn, []byte(response))
 	if err != nil {
 		return err
