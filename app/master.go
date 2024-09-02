@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
+	"strings"
 )
 
 func performHandshake(conn net.Conn, reader *bufio.Reader) error {
@@ -63,7 +65,17 @@ func performHandshake(conn net.Conn, reader *bufio.Reader) error {
 	return nil
 }
 
-func handleMaster(conn net.Conn, reader *bufio.Reader) {
+func connectToMaster() {
+	parts := strings.Split(configParams["master"], " ")
+	conn, err := net.Dial("tcp", parts[0]+":"+parts[1])
+	if err != nil {
+		fmt.Printf("Failed to connect to master (%s:%s)\n", parts[0], parts[1])
+		os.Exit(1)
+	}
+	fmt.Printf("Connected to master (%s:%s)\n", parts[0], parts[1])
+
+	reader := bufio.NewReader(conn)
+
 	if err := performHandshake(conn, reader); err != nil {
 		fmt.Println("Error performing handshake (will close)", err.Error())
 		if err := conn.Close(); err != nil {

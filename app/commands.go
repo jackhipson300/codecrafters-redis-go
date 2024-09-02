@@ -20,12 +20,7 @@ const discardNotInQueueModeErr = "-ERR DISCARD without MULTI\r\n"
 var xreadBlockMutex = sync.Mutex{}
 var xreadBlockSignal = sync.NewCond(&xreadBlockMutex)
 
-type Command struct {
-	handler         func([]string, *Client) (string, error)
-	shouldReplicate bool
-}
-
-var commands map[string]Command
+var commands map[string]func([]string, *Client) (string, error)
 
 func echoCommand(args []string, client *Client) (string, error) {
 	if len(args) == 0 {
@@ -182,6 +177,7 @@ func replconfCommand(args []string, client *Client) (string, error) {
 		ackLock.Lock()
 		numAcksSinceLasSet++
 		ackLock.Unlock()
+		return "", nil
 	}
 
 	return "", fmt.Errorf("unsupported replconf")
@@ -581,9 +577,9 @@ func execCommand(args []string, client *Client) (string, error) {
 	client.queueFlag = false
 	responses := []string{}
 	for _, command := range client.commandQueue {
-		queuedArgs := command[2:]
+		queuedArgs := command[1:]
 		if command[1] != "exec" {
-			response, _ := runCommand(command[0], command[1], queuedArgs, client)
+			response, _ := runCommand(command[0], queuedArgs, client)
 			responses = append(responses, response)
 		}
 	}
@@ -603,43 +599,32 @@ func discardCommand(args []string, client *Client) (string, error) {
 	return "+OK\r\n", nil
 }
 
-func runCommand(rawCommand string, commandName string, args []string, client *Client) (string, error) {
-	if client.queueFlag && commandName != "exec" && commandName != "discard" {
-		fmt.Printf("Queueing command: %s\n", commandName)
-		client.commandQueue = append(client.commandQueue, append([]string{rawCommand, commandName}, args...))
-		if _, err := client.conn.Write([]byte("+QUEUED\r\n")); err != nil {
-			fmt.Println("Error responding after queueing command: ", err.Error())
-		}
-		return "", nil
-	}
-
-	command, exists := commands[commandName]
+func runCommand(commandName string, args []string, client *Client) (string, error) {
+	commandHandler, exists := commands[commandName]
 	if !exists {
 		fmt.Printf("Error running command '%s': command does not exist\n", commandName)
 	}
 
 	fmt.Printf("%s running command: %s %v\n", configParams["role"], commandName, args)
 
-	response, err := command.handler(args, client)
+	response, err := commandHandler(args, client)
 	if err != nil {
-		return "", err
-	}
-
-	bytesProcessed += len(rawCommand)
-
-	if command.shouldReplicate {
-		replicasLock.Lock()
-		defer replicasLock.Unlock()
-
-		for _, replica := range replicas {
-			go func() {
-				if _, innerErr := replica.Write([]byte(rawCommand)); innerErr != nil {
-					fmt.Println("Failed to relay command to replica", innerErr.Error())
-					return
-				}
-			}()
-		}
+		return "-ERR\r\n", err
 	}
 
 	return response, err
+}
+
+func forwardCommandToReplicas(command string) {
+	replicasLock.Lock()
+	defer replicasLock.Unlock()
+
+	for _, replica := range replicas {
+		go func() {
+			if _, innerErr := replica.Write([]byte(command)); innerErr != nil {
+				fmt.Println("Failed to relay command to replica", innerErr.Error())
+				return
+			}
+		}()
+	}
 }

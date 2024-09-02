@@ -132,3 +132,41 @@ func findMostRecentEntryId(stream *Stream) (int64, int, bool) {
 
 	return mostRecentTimestamp, mostRecentSeqNum, true
 }
+
+func parseRespCommand(reader *bufio.Reader) (rawCommand string, commandName string, args []string, err error) {
+	numArgsLeft := 0
+	args = []string{}
+
+	var part string
+	for {
+		part, err = readResp(reader)
+		if err != nil {
+			return
+		}
+
+		rawCommand += part + "\r\n"
+		if numArgsLeft == 0 && (part[0] != '*' || len(part) == 1) {
+			continue
+		}
+
+		if numArgsLeft == 0 {
+			numArgsLeft, _ = strconv.Atoi(part[1:])
+			continue
+		}
+
+		if part[0] == '$' && len(part) > 1 {
+			continue
+		}
+
+		if len(commandName) == 0 {
+			commandName = strings.ToLower(part)
+		} else {
+			args = append(args, part)
+		}
+		numArgsLeft--
+
+		if numArgsLeft == 0 {
+			return
+		}
+	}
+}

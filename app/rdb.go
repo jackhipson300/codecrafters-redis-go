@@ -75,10 +75,6 @@ func getKeys() (map[string]ValueInfo, error) {
 		return nil, fmt.Errorf("error getting keys: no db section found")
 	}
 
-	// for i, b := range contents {
-	// 	fmt.Printf("%d %02x\n", i, b)
-	// }
-
 	keys := make(map[string]ValueInfo)
 	for idx := dbStartIdx + 5; idx < len(rdbFile) && rdbFile[idx] != 0xFF; {
 		expiry := int64(-1)

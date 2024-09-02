@@ -8,8 +8,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 )
@@ -77,62 +75,37 @@ func main() {
 		configParams["replOffset"] = "0"
 	}
 
-	commands = map[string]Command{
-		"echo":     {handler: echoCommand, shouldReplicate: false},
-		"ping":     {handler: pingCommand, shouldReplicate: false},
-		"set":      {handler: setCommand, shouldReplicate: true},
-		"get":      {handler: getCommand, shouldReplicate: false},
-		"config":   {handler: configCommand, shouldReplicate: false},
-		"keys":     {handler: keysCommand, shouldReplicate: false},
-		"info":     {handler: infoCommand, shouldReplicate: false},
-		"replconf": {handler: replconfCommand, shouldReplicate: false},
-		"psync":    {handler: psyncCommand, shouldReplicate: false},
-		"wait":     {handler: waitCommand, shouldReplicate: false},
-		"type":     {handler: typeCommand, shouldReplicate: false},
-		"xadd":     {handler: xaddCommand, shouldReplicate: false},
-		"xrange":   {handler: xrangeCommand, shouldReplicate: false},
-		"xread":    {handler: xreadCommand, shouldReplicate: false},
-		"incr":     {handler: incrCommand, shouldReplicate: false},
-		"multi":    {handler: multiCommand, shouldReplicate: false},
-		"exec":     {handler: execCommand, shouldReplicate: false},
-		"discard":  {handler: discardCommand, shouldReplicate: false},
+	commands = map[string]func([]string, *Client) (string, error){
+		"echo":     echoCommand,
+		"ping":     pingCommand,
+		"set":      setCommand,
+		"get":      getCommand,
+		"config":   configCommand,
+		"keys":     keysCommand,
+		"info":     infoCommand,
+		"replconf": replconfCommand,
+		"psync":    psyncCommand,
+		"wait":     waitCommand,
+		"type":     typeCommand,
+		"xadd":     xaddCommand,
+		"xrange":   xrangeCommand,
+		"xread":    xreadCommand,
+		"incr":     incrCommand,
+		"multi":    multiCommand,
+		"exec":     execCommand,
+		"discard":  discardCommand,
 	}
 
-	l, err := net.Listen("tcp", "0.0.0.0:"+configParams["port"])
+	listener, err := net.Listen("tcp", "0.0.0.0:"+configParams["port"])
 	if err != nil {
 		fmt.Printf("Failed to bind to port %s\n", configParams["port"])
 		os.Exit(1)
 	}
 
-	go func() {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				continue
-			}
-			reader := bufio.NewReader(conn)
-
-			client := Client{
-				conn:         conn,
-				queueFlag:    false,
-				commandQueue: [][]string{},
-			}
-			go handleClient(&client, reader)
-		}
-	}()
+	go listenForAndHandleClientConnections(listener)
 
 	if configParams["role"] == "slave" {
-		parts := strings.Split(configParams["master"], " ")
-		conn, err := net.Dial("tcp", parts[0]+":"+parts[1])
-		if err != nil {
-			fmt.Printf("Failed to connect to master (%s:%s)\n", parts[0], parts[1])
-			os.Exit(1)
-		}
-		fmt.Printf("Connected to master (%s:%s)\n", parts[0], parts[1])
-
-		reader := bufio.NewReader(conn)
-
-		go handleMaster(conn, reader)
+		go connectToMaster()
 	}
 
 	sigs := make(chan os.Signal, 1)
@@ -141,61 +114,72 @@ func main() {
 	<-sigs
 
 	fmt.Println("Shutting down gracefully...")
-	l.Close()
+	listener.Close()
 
 	os.Exit(0)
+}
+
+func listenForAndHandleClientConnections(listener net.Listener) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			continue
+		}
+		reader := bufio.NewReader(conn)
+
+		client := Client{
+			conn:         conn,
+			queueFlag:    false,
+			commandQueue: [][]string{},
+		}
+		go handleClient(&client, reader)
+	}
 }
 
 func handleClient(client *Client, reader *bufio.Reader) {
 	defer client.conn.Close()
 
-	numArgsLeft := 0
-	command := ""
-	rawCommand := ""
-	args := []string{}
 	for {
-		part, err := readResp(reader)
+		rawCommand, commandName, args, err := parseRespCommand(reader)
 		if err != nil {
 			if err != io.EOF {
-				fmt.Println("Error reading from connection (will close): ", err.Error())
+				fmt.Println("Error reading from connection: ", err.Error())
 			}
-			return
+			break
 		}
 
-		rawCommand += part + "\r\n"
-		if numArgsLeft == 0 && (part[0] != '*' || len(part) == 1) {
-			continue
-		}
-
-		if numArgsLeft == 0 {
-			numArgsLeft, _ = strconv.Atoi(part[1:])
-			continue
-		}
-
-		if part[0] == '$' && len(part) > 1 {
-			continue
-		}
-
-		if len(command) == 0 {
-			command = strings.ToLower(part)
-		} else {
-			args = append(args, part)
-		}
-		numArgsLeft--
-
-		if numArgsLeft == 0 {
-			response, err := runCommand(rawCommand, command, args, client)
-			if err != nil {
-				fmt.Printf("Error performing command %s: %s\n", command, err.Error())
-			} else if configParams["role"] == "master" || command == "replconf" || command == "get" || command == "info" {
-				if _, err := client.conn.Write([]byte(response)); err != nil {
-					fmt.Println("Error sending command response:", err.Error())
-				}
+		shouldQueueCommand := client.queueFlag && commandName != "exec" && commandName != "discard"
+		if shouldQueueCommand {
+			fmt.Printf("Queueing command: %s\n", commandName)
+			client.commandQueue = append(client.commandQueue, append([]string{commandName}, args...))
+			if _, err := client.conn.Write([]byte("+QUEUED\r\n")); err != nil {
+				fmt.Println("Error responding after queueing command: ", err.Error())
+				break
 			}
+			continue
+		}
 
-			command = ""
-			rawCommand = ""
-			args = []string{}
+		response, err := runCommand(commandName, args, client)
+		if err != nil {
+			fmt.Printf("Error performing command %s: %s\n", commandName, err.Error())
+		} else if commandName == "set" {
+			fmt.Printf("Forwarding %s to replicas\n", commandName)
+			forwardCommandToReplicas(rawCommand)
+		}
+
+		bytesProcessed += len(rawCommand)
+
+		shouldSendResponse := len(response) > 0 && (configParams["role"] == "master" ||
+			commandName == "replconf" ||
+			commandName == "get" ||
+			commandName == "info")
+		if shouldSendResponse {
+			if _, err := client.conn.Write([]byte(response)); err != nil {
+				fmt.Println("Error sending command response:", err.Error())
+				break
+			}
 		}
 	}
+
+	fmt.Println("Closing client connection")
 }
